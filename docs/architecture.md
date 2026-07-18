@@ -226,6 +226,12 @@ type DuplexEvent =
   | { type: 'session.ready'; providerSessionId: string }
   | { type: 'participant.joined'; participant: ParticipantRef }
   | { type: 'participant.left'; participant: ParticipantRef }
+  | { type: 'participant.source_mapped'; participant: ParticipantRef; sourceId: string; confidence: 'strong' | 'best_effort' }
+  | { type: 'participant.source_unmapped'; sourceId: string }
+  | { type: 'participant.state_changed'; participant: ParticipantRef; muted?: boolean; suppressed?: boolean; canSpeak?: boolean }
+  | { type: 'floor.changed'; owner?: ParticipantRef; reason: string }
+  | { type: 'floor.collision'; owner?: ParticipantRef; contender?: ParticipantRef }
+  | { type: 'endpoint.capabilities_changed'; fingerprint: string }
   | { type: 'user.speech_started'; participant?: ParticipantRef; at: number }
   | { type: 'user.speech_stopped'; participant?: ParticipantRef; at: number }
   | { type: 'transcript.user_update'; itemId: string; participant?: ParticipantRef; text: string; mode: 'delta' | 'cumulative' }
@@ -293,8 +299,10 @@ Hermes already has a turn-based Discord voice path: per-user receive, silence de
 The endpoint:
 
 - joins through Voice Gateway v8 and waits for both voice state/server events;
-- requires Connect/Speak and bidirectional UDP reachability;
+- requires bidirectional UDP reachability;
+- verifies effective View Channel, Connect, and Speak permissions before joining and respects channel user limits;
 - uses a maintained current Discord voice implementation with RTP encryption and mandatory DAVE E2EE support;
+- supports `aead_xchacha20_poly1305_rtpsize` and prefers `aead_aes256_gcm_rtpsize` when offered;
 - receives per-user Opus/PCM with SSRC-to-user mapping and excludes bot audio;
 - converts provider output to paced Discord 48 kHz stereo PCM/Opus;
 - sends speaking state before output and required silence frames after it;
@@ -303,6 +311,8 @@ The endpoint:
 - links transcript, status, and approvals to the text channel that issued `/duplex join`.
 
 Initial scope is one call per guild with a configurable global limit. The plugin does not open a second gateway login using the same bot token. If Hermes lacks the stable frame/event/output seam, development may use a mutually exclusive replacement adapter; stable install never patches the user's checkout.
+
+Stage channels are not treated as ordinary voice channels. Initial support rejects them unless the endpoint explicitly implements suppression, request-to-speak, moderator permissions, and stage-specific lifecycle tests.
 
 ### 7.3 Telegram Bot API voice-message endpoint
 
@@ -321,6 +331,8 @@ True Telegram live voice requires a separate MTProto user session and local tgca
 - mutually authenticated loopback/Unix-socket IPC to the Hermes duplex backend;
 - PCM input/output through the shared media bridge;
 - capability-truthful participant attribution.
+
+The adapter keeps three identities distinct: the authenticated MTProto account, the visible `join_as` peer, and the Hermes authorization subject controlling the call. Speaking readiness is negotiated from mute/suppression state, invite-hash/self-unmute policy, and administrator action; joining does not imply permission to publish audio.
 
 Initial support targets ordinary group video chats/voice chats. RTMP publishing, private one-to-one calls, and newer E2E conference-call blockchain/key flows are unsupported until implemented and tested explicitly. The Bot API token is never passed to `phone.joinGroupCall`.
 
@@ -351,6 +363,8 @@ The first release sends one participant at a time to one provider conversation:
 6. normalized transcript events retain the participant reference and attribution level.
 
 This is a conversational channel, not speaker diarization or a conference mixer.
+
+The floor controller supports configurable hold/timeout plus endpoint policies such as push-to-talk, wake word, moderator grant, or explicit addressing. Continuous room audio alone is not proof that speech is directed at Hermes. Only an admitted, authorized floor holder can trigger assistant barge-in; output flush and provider cancellation are atomic.
 
 ### 8.3 Recovery
 
@@ -440,6 +454,10 @@ Every frame path has bounded queues, timestamps, overflow policy, and metrics. S
 ### 13.3 Failure taxonomy
 
 Errors distinguish provider authentication/rate limit/model drift, endpoint permissions/encryption/media reachability, participant authorization, local codec/call-engine availability, sidecar authentication, and recoverable transport loss. User-facing status identifies which side failed without leaking upstream secrets.
+
+### 13.4 Stateful deployment
+
+Channel endpoints are long-lived workers, not serverless request handlers. A fenced owner/distributed lease prevents duplicate joins for each platform account and call scope. Recovery uses sticky worker placement where possible, idempotent leave, and lease expiry before takeover. Deployment documentation covers Discord bidirectional UDP/NAT, Telegram MTProto/media reachability, Opus/resampling tools, native `libdave`/tgcalls ABI packaging, architecture-specific builds, containers, and Linux smoke tests. Worker placement should minimize combined platform-media and provider latency.
 
 ## 14. Testing strategy
 

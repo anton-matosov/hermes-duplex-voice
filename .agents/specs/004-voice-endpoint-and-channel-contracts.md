@@ -13,7 +13,7 @@ Implement the stable frontend seam that lets Hermes Desktop, Discord voice chann
 - Versioned `VoiceEndpointAdapter`, `VoiceEndpointSession`, `ParticipantRef`, and `EndpointCapabilities` contracts.
 - A runtime-placement-aware call router for renderer-direct and gateway-hosted media.
 - Audio format negotiation and conversion boundaries between endpoint and provider transports.
-- Participant/floor-control, authorization-context, text-side-channel, and endpoint recovery contracts.
+- Participant/source/floor-control, directed-speech policy, authorization-context, text-side-channel, and endpoint recovery contracts.
 - A reusable endpoint contract test kit.
 
 ## Contract rules
@@ -86,16 +86,16 @@ The router rejects a provider/endpoint pair if no compatible runtime placement, 
 
 ## Multi-participant floor control
 
-The first release runs one provider conversation per joined channel and one active speaker at a time:
+The first release runs one provider conversation per joined channel and one active speaker at a time. Endpoint events include participant join/leave, source mapped/unmapped, speech start/stop, mute/suppress/can-speak state, floor owner/collision, and capability changes:
 
 1. endpoint speaking events nominate a participant;
 2. the floor controller grants the floor to the first authorized speaker;
 3. frames from other speakers are dropped or marked overlap while the floor is held;
 4. endpoint silence/VAD or provider speech-stop releases the floor;
-5. an authorized speaker beginning while assistant output is active flushes endpoint output and requests provider cancellation;
+5. only an admitted authorized speaker beginning while assistant output is active atomically flushes endpoint output and requests provider cancellation;
 6. participant identity is attached to normalized user transcript events and durable turns.
 
-The floor policy is deterministic and configurable, but overlapping speakers are not mixed into one unattributed model input. An endpoint lacking strong attribution receives a restricted tool policy and requires text-side approval for consequential actions.
+The floor policy is deterministic and configurable, with hold/timeout and collision behavior, but overlapping speakers are not mixed into one unattributed model input. Push-to-talk, wake-word, moderator-grant, and explicit-addressing policies may decide whether room speech is directed at Hermes. An endpoint lacking strong attribution receives a restricted tool policy and requires text-side approval for consequential actions.
 
 ## Tests
 
@@ -108,8 +108,9 @@ The endpoint contract suite verifies:
 - deterministic floor grant, overlap rejection, release, and barge-in;
 - endpoint scope to Hermes authorization/tool scope binding;
 - text-side status and approval routing;
-- transport recovery without duplicating finalized turns; and
-- complete teardown of sockets, media tasks, queues, timers, and participant state.
+- transport recovery without duplicating finalized turns;
+- complete teardown of sockets, media tasks, queues, timers, and participant state; and
+- fenced ownership/distributed lease behavior preventing two workers from joining the same call scope.
 
 ## Acceptance criteria
 

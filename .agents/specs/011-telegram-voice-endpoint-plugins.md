@@ -56,6 +56,8 @@ The live endpoint is a separate trusted process because it requires native call-
 - The sidecar connects to the local Hermes duplex backend over mutually authenticated, loopback/Unix-socket IPC. It never receives provider keys or unrestricted Hermes credentials.
 - Provider audio is streamed back through the call engine. On inbound speech during output, flush sidecar output and cancel the provider response when the endpoint can supply a reliable speech-start signal.
 
+Track the authenticated MTProto account, visible `join_as` peer, and Hermes authorization subject as distinct identities. An eligible user/channel `join_as` does not turn a Bot API bot into a participant. Before publishing audio, verify mute/suppression state plus invite-hash/self-unmute or administrator-granted speaking permission.
+
 ## Identity and tool safety
 
 Telegram call-engine participant attribution varies by call type and library. The adapter advertises `strong`, `best_effort`, or `none` based on verified runtime behavior; it must not invent speaker IDs.
@@ -90,6 +92,7 @@ Control remains in the existing Telegram Bot API chat/topic:
 - Bot API fixtures for incoming voice, file limits, update dedupe, topic mapping, Opus decode/encode, native `sendVoice`, provider failure, and retry.
 - Capability tests proving the Bot API endpoint cannot negotiate `live_duplex`.
 - MTProto/tgcalls fixtures for login/session loading, join/leave, join-as identity, participant updates, PCM input/output, reconnect, mute state, and unsupported call types.
+- Speaking-policy tests for suppressed/listener joins, invite-hash self-unmute, administrator action, and mismatch among account, visible, and Hermes identities.
 - Secrets tests for session-file permissions/encryption, redacted login errors, logout/revocation, IPC authentication, and no credential leakage.
 - Policy tests for allowlisted chats, authorized initiator, attribution downgrade, restricted tools, linked-chat approvals, and no speaker authority inheritance.
 - Opt-in smoke uses a disposable test group and dedicated test account; it verifies visible join, bidirectional audio, barge-in when supported, transcript honesty, leave, and cleanup.

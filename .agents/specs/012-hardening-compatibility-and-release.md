@@ -36,6 +36,8 @@ Drift canaries:
 
 Security review covers malicious bootstrap, credential replay/exfiltration, endpoint redirection/SSRF, cross-provider/profile/call confusion, stale capabilities/catalog, participant impersonation, authority inheritance, Discord voice tokens/DAVE material, Telegram MTProto session theft, sidecar IPC, duplicate tools, approval bypass, payload injection/limits, media backpressure, transcript/log leakage, and abandoned media.
 
+Deployment gates cover fenced single-worker ownership, sticky recovery, duplicate-join prevention, Discord UDP/NAT reachability, Telegram media reachability, Opus/resampling dependencies, native `libdave`/tgcalls ABI and architecture packaging, container behavior, and Linux live smoke.
+
 Release artifacts version desktop/backend/sidecar protocols together and publish supported Hermes versions plus provider and endpoint compatibility matrices. Installation creates rollback before replacement.
 
 ## Acceptance criteria

@@ -33,7 +33,8 @@ Until that seam exists in a supported Hermes version, a mutually exclusive repla
 ## Discord media and lifecycle
 
 - Use Discord Voice Gateway version 8 and wait for both Voice State Update and Voice Server Update before voice negotiation.
-- Use a maintained Discord voice implementation that supports current RTP encryption and DAVE E2EE. As of the targeted 2026 release, DAVE support is mandatory; fail closed rather than downgrading to an obsolete receive path.
+- Use a maintained Discord voice implementation that supports current RTP encryption and DAVE/MLS E2EE, preferably through maintained `libdave` bindings. As of the targeted 2026 release, DAVE support is mandatory; fail closed rather than downgrading to an obsolete receive path.
+- Support required `aead_xchacha20_poly1305_rtpsize` transport encryption and prefer `aead_aes256_gcm_rtpsize` when offered.
 - The host must support bidirectional UDP through NAT/firewall and voice WebSocket heartbeats/resume.
 - Discord input is participant-attributed Opus/PCM at 48 kHz; decode/resample only at the explicit media bridge.
 - Convert provider output to Discord-compatible 48 kHz stereo PCM or Opus frames. Maintain 20 ms pacing, send speaking state before audio, and emit the required silence frames at output end.
@@ -53,7 +54,7 @@ Register a non-conflicting command family in the linked text channel:
 /duplex unmute
 ```
 
-`/duplex join` requires the invoker to be in the target voice channel and pass existing Discord user/role authorization. The status message identifies the active provider/model, linked text channel, participant policy, transcript policy, and whether tools are restricted. The bot visibly announces join, recovery, and leave; it never listens invisibly.
+`/duplex join` requires the invoker to be in the target voice channel, pass existing Discord user/role authorization, and have an endpoint with effective View Channel, Connect, and Speak permissions. Respect channel user limits; Move Members may bypass a full channel only when the configured bot actually has it. Stage channels are rejected initially unless a later capability implements suppression/request-to-speak and moderator flows explicitly. The status message identifies the active provider/model, linked text channel, participant policy, transcript policy, and whether tools are restricted. The bot visibly announces join, recovery, and leave; it never listens invisibly.
 
 ## Identity, tools, and concurrency
 
@@ -63,6 +64,7 @@ Register a non-conflicting command family in the linked text channel:
 - Initial multi-user policy uses one active-speaker floor. Overlap is surfaced in diagnostics/text, not mixed into unattributed input.
 - Consequential tool requests require the normal Hermes approval in the linked text channel from an authorized approver.
 - Default concurrency is one joined channel per guild and a configurable global ceiling with admission control.
+- A fenced distributed lease owns each `(bot account, guild, voice channel)` call; workers are sticky where possible and duplicate joins fail closed.
 
 ## Tests
 
@@ -70,7 +72,7 @@ Register a non-conflicting command family in the linked text channel:
 - Deterministic Opus/PCM conversion, packet pacing, queue bounds, bot-audio exclusion, output flush, and required silence frames.
 - Authorization tests for allowed users, roles, guild isolation, linked-channel approvals, participant join/leave, and no authority inheritance.
 - Barge-in latency test from speaking event to local flush/provider cancel.
-- Failure tests for missing Connect/Speak permissions, channel full, UDP failure, DAVE unsupported, endpoint migration, bot move/kick, provider failure, and shutdown.
+- Failure tests for missing View Channel/Connect/Speak permissions, channel full/Move Members behavior, Stage rejection, UDP failure, DAVE unsupported, endpoint migration, bot move/kick, provider failure, duplicate-worker lease, and shutdown.
 - Opt-in smoke in a dedicated test guild with two human accounts verifies join, bidirectional audio, interruption, transcript attribution, harmless tool execution, reconnect, and cleanup.
 
 ## Acceptance criteria
