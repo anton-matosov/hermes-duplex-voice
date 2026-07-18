@@ -1,12 +1,12 @@
-# Spec 005: Provider events and transcripts
+# Spec 006: Provider events and transcripts
 
 ## Objective
 
-Map OpenAI and xAI wire events into deterministic lifecycle/UI state and interruption-aware finalized transcript records.
+Map OpenAI and xAI wire events plus endpoint participant events into deterministic lifecycle/UI state and interruption-aware, participant-attributed finalized transcript records.
 
 ## Dependencies
 
-- Specs 003–004
+- Specs 003–005
 
 ## Deliverables
 
@@ -15,6 +15,7 @@ Map OpenAI and xAI wire events into deterministic lifecycle/UI state and interru
 - Delta/cumulative transcript assembler and dedupe ledger.
 - Idempotent backend event batches.
 - Minimal live transcript display.
+- Endpoint participant join/leave/speaking correlation and attribution-level propagation.
 
 ## Provider mapping
 
@@ -30,6 +31,8 @@ Unknown events record provider type, adapter version, and count in redacted diag
 
 Persist only final transcripts. Interrupted assistant turns include delivery/truncation metadata so unheard text is not represented as fully delivered. Provider resumption replay is deduplicated using stable session/item/call IDs.
 
+User transcript records preserve a strongly mapped participant or an explicit `best_effort`/`none` attribution level; they never guess. Endpoint adapters attach normalized identity before persistence without exposing raw Discord or Telegram payloads.
+
 ## Tests
 
 - Fixture mapping for both providers: session, VAD, transcripts, response start/done/interruption, tools, error, and close.
@@ -39,10 +42,11 @@ Persist only final transcripts. Interrupted assistant turns include delivery/tru
 - Pure reducer transition table.
 - Backend ordering, idempotency, batch/field limits, closing grace, and raw-audio rejection.
 - Bounded client retry queue.
+- Participant mapping, attribution downgrade, overlap, endpoint replay, and cross-scope rejection.
 
 ## Acceptance criteria
 
-1. Shared reducers/components import no provider wire type.
+1. Shared reducers/components import no provider or endpoint wire type.
 2. OpenAI and xAI produce equivalent portable state for equivalent conversations.
 3. Provider differences do not fabricate unsupported events.
 4. Final records are ordered, deduplicated, and interruption-aware.

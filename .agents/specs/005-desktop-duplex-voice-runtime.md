@@ -1,12 +1,12 @@
-# Spec 004: Desktop duplex voice runtime
+# Spec 005: Desktop duplex voice runtime
 
 ## Objective
 
-Implement direct, low-latency media for OpenAI over WebRTC and xAI over WebSocket/AudioWorklet behind the contracts from Spec 003.
+Implement the Desktop endpoint's direct, low-latency media for OpenAI over WebRTC and xAI over WebSocket/AudioWorklet behind the provider and endpoint contracts from Specs 003–004.
 
 ## Dependencies
 
-- Specs 001–003
+- Specs 001–004
 
 ## Deliverables
 

@@ -1,4 +1,4 @@
-# Spec 008: Desktop product UX and configuration
+# Spec 009: Desktop product UX and configuration
 
 ## Objective
 
@@ -6,7 +6,7 @@ Deliver a native, accessible provider-aware voice experience driven by runtime c
 
 ## Dependencies
 
-- Specs 001–007
+- Specs 001–008
 
 ## Deliverables
 

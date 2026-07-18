@@ -1,4 +1,4 @@
-# Spec 006: Hermes function-tool bridge
+# Spec 007: Hermes function-tool bridge
 
 ## Objective
 
@@ -6,14 +6,14 @@ Expose a narrowly scoped Hermes function catalog to either voice provider while 
 
 ## Dependencies
 
-- Specs 002–005
+- Specs 002–006
 
 ## Deliverables
 
 - Canonical `PortableFunctionTool`/`ToolRequest`/`ToolOutput` models.
 - Hermes compatibility adapter for scope, schemas, and dispatch.
 - OpenAI and xAI tool serializers/parsers.
-- Idempotent tool route and desktop coordinator.
+- Idempotent tool route and endpoint-neutral coordinator.
 - Initial low-risk policy and approval gate.
 
 ## Flow
@@ -22,8 +22,8 @@ Expose a narrowly scoped Hermes function catalog to either voice provider while 
 2. Backend generates canonical schemas and catalog fingerprint.
 3. Provider adapter serializes tools into its session syntax.
 4. Adapter maps completed provider calls to normalized requests, including group ID for parallel calls.
-5. Desktop posts each call to `/calls/{voice_call_id}/tools/{provider_call_id}`.
-6. Backend revalidates profile, active call, provider/capability/catalog fingerprints, tool scope, arguments, risk, and approval.
+5. The active endpoint/provider coordinator submits each call to `/calls/{voice_call_id}/tools/{provider_call_id}` or the equivalent in-process route.
+6. Backend revalidates profile, endpoint scope, initiator/participant authority, active call, provider/endpoint/capability/catalog fingerprints, tool scope, arguments, risk, and approval.
 7. Hermes dispatcher runs with identical scope/session identifiers.
 8. Provider adapter serializes terminal outputs and requests continuation according to provider ordering rules.
 
@@ -42,11 +42,12 @@ All Hermes-specific imports stay in `hermes_compat.py`; signature/scope resoluti
 - Correct provider output event plus exactly one continuation request.
 - Harmless tool end-to-end for each adapter fixture.
 - Approval approve/reject/timeout before consequential tools can be enabled.
+- Multi-participant tests proving channel presence and unattributed speech cannot inherit initiator tool scope.
 
 ## Acceptance criteria
 
 1. Each provider can invoke the same harmless Hermes tool and continue speaking from its result.
-2. No provider or renderer can widen the server catalog.
+2. No provider, renderer, channel adapter, or additional participant can widen the server catalog.
 3. Provider-native tools are off by default.
 4. Retry cannot duplicate side effects.
 5. Hooks, middleware, and proven approvals execute exactly once.

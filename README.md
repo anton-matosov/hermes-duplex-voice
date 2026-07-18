@@ -1,126 +1,151 @@
 # Hermes Duplex Voice
 
-Provider-pluggable, full-duplex speech-to-speech for Hermes Desktop.
+Provider- and frontend-pluggable, full-duplex speech-to-speech for Hermes.
 
 > **Status:** architecture and implementation specifications. No production code has shipped yet.
 
 ## Goal
 
-Add a natural voice conversation mode to Hermes Desktop that:
+Add a natural voice conversation mode to Hermes that:
 
-- streams microphone audio directly to a native duplex voice model;
+- streams participant audio directly into a native duplex voice model;
 - plays model audio with low first-audio latency;
-- supports provider VAD, natural turn-taking, and real barge-in;
+- supports provider VAD, natural turn-taking, and real barge-in on live endpoints;
+- supports Hermes Desktop and server-hosted Discord/Telegram frontends;
+- preserves endpoint participant identity without widening Hermes tool permissions;
 - exposes an explicitly scoped subset of Hermes tools;
-- preserves finalized transcripts and call metadata in Hermes;
-- keeps permanent provider credentials out of the desktop renderer; and
-- survives provider API changes by isolating authentication, transport, protocol events, media, and capabilities behind versioned adapters.
+- stores finalized transcripts and call metadata rather than raw audio;
+- keeps permanent provider and platform credentials in their trusted runtimes; and
+- survives provider and platform API changes through versioned capability-driven adapters.
 
-This is intentionally **not** a record → transcribe → text model → TTS pipeline. The selected model consumes and produces audio natively.
+This is intentionally **not** a record → transcribe → text model → TTS pipeline. The selected provider consumes and produces audio natively. Telegram Bot API voice notes are store-and-forward and are clearly labeled non-duplex.
 
 ## Initial providers
 
-| Provider | Model family | Client transport | Browser authentication | Media handling |
+| Provider | Model family | Desktop transport | Server/channel transport | Authentication |
 |---|---|---|---|---|
-| OpenAI | Realtime (`gpt-realtime-*`) | WebRTC | short-lived client secret | browser/WebRTC media tracks |
-| xAI | Grok Voice (`grok-voice-*`) | WebSocket | ephemeral token in `Sec-WebSocket-Protocol` | AudioWorklet + binary 24 kHz PCM |
+| OpenAI | Realtime (`gpt-realtime-*`) | WebRTC | server WebSocket | ephemeral Desktop secret or backend key |
+| xAI | Grok Voice (`grok-voice-*`) | WebSocket + AudioWorklet | server WebSocket | ephemeral Desktop token or backend key |
 
-OpenAI remains the default. xAI/Grok is the second end-to-end provider and proves that the core is not coupled to WebRTC, OpenAI event names, or one session-secret shape.
+OpenAI remains the default. xAI/Grok proves that the core is not coupled to WebRTC, OpenAI event names, or one session-secret shape.
+
+## Voice frontends
+
+| Frontend endpoint | Mode | Runtime | Notes |
+|---|---|---|---|
+| Hermes Desktop | full duplex | renderer | direct ephemeral provider media |
+| Discord voice channel | full duplex | Hermes gateway | Voice Gateway v8, RTP/Opus, DAVE, per-user floor control |
+| Telegram Bot API voice message | asynchronous voice notes | Hermes gateway | exact sender identity; not realtime/barge-in |
+| Telegram group call | full duplex | isolated MTProto/tgcalls sidecar | dedicated visible user account; opt-in experimental |
+
+> **Telegram constraint:** the HTTP Bot API can send and receive voice messages but cannot join a live group call. Telegram's `phone.joinGroupCall` method is user-only and requires a local tgcalls engine. The live plugin therefore uses a separately authorized Telegram user session—not the bot token—and has stricter tool defaults.
 
 ## Proposed shape
 
 ```text
-Hermes Desktop runtime plugin
-  ├─ composer action + provider-aware call panel
-  ├─ shared microphone/device manager
-  ├─ provider-neutral call controller
-  ├─ OpenAI adapter ── WebRTC media + data channel
-  └─ xAI adapter ───── WebSocket events + AudioWorklet PCM
-                         │
-                         │ authenticated plugin REST
-                         ▼
-Hermes backend plugin
-  ├─ provider registry + capability discovery
-  ├─ OpenAI bootstrap adapter ── OPENAI_API_KEY
-  ├─ xAI bootstrap adapter ───── XAI_API_KEY
-  ├─ Hermes tool-policy bridge
-  └─ durable transcript/call events
-                         │
-                         └────────► Hermes tools/session store
-
-Desktop transport ◄══════════════════════════► selected voice provider
-                   continuous duplex audio
+                         ┌───────────────────────────────────┐
+                         │ Hermes duplex backend/core        │
+                         │ provider + endpoint registries    │
+                         │ floor/identity/tool/session policy│
+                         └───────────────┬───────────────────┘
+                                         │
+                   ┌─────────────────────┴────────────────────┐
+                   │                                          │
+Hermes Desktop runtime plugin                    Gateway/channel endpoint plugins
+  ├─ Desktop endpoint                              ├─ Discord Voice
+  ├─ OpenAI WebRTC runtime                         ├─ Telegram voice messages
+  └─ xAI WebSocket/AudioWorklet                     ├─ Telegram MTProto sidecar
+                   │                                └─ server provider runtimes
+                   │                                          │
+                   └────────────► OpenAI / xAI ◄───────────────┘
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the full design and provider contracts.
+Providers and frontends are independent axes. The same Discord endpoint can use OpenAI or xAI without importing either wire protocol; the same provider can serve Desktop or a gateway-hosted channel through different runtime placements.
+
+See [`docs/architecture.md`](docs/architecture.md) for the complete contracts, media topology, identity model, and platform constraints.
 
 ## High-level plan
 
-1. **Package the extension surfaces** — bundled desktop runtime plugin, Hermes backend plugin, provider modules, development tooling, and reversible installer.
-2. **Secure provider bootstrap** — authenticated backend endpoints select a configured provider and mint provider-specific short-lived credentials without leaking permanent keys.
-3. **Freeze internal contracts** — versioned provider, transport, media, event, tool, and capability interfaces with contract fixtures for OpenAI and xAI.
-4. **Implement duplex transports** — OpenAI WebRTC plus xAI WebSocket with AudioWorklet capture/playback, bounded jitter buffering, and cancellation.
-5. **Normalize conversation semantics** — map provider events into stable lifecycle, transcript, interruption, error, and tool-call events while preserving provider metadata behind an extension envelope.
-6. **Bridge Hermes tools** — convert schemas per provider, execute only server-authorized tools through Hermes, and return results through the selected adapter.
-7. **Preserve continuity** — record finalized turns and provider/model metadata in a dedicated Hermes voice session.
-8. **Productize provider selection** — capability-driven settings and UI, voice/model discovery, diagnostics, accessibility, and graceful unsupported-feature handling.
-9. **Harden against drift** — pinned production models, protocol fixtures, unknown-event canaries, live smoke tests per provider, compatibility matrices, and documented adapter migration rules.
+1. **Package extension surfaces** — Desktop runtime, Hermes backend, provider modules, endpoint modules, optional Telegram sidecar, development tooling, and rollback-safe installer.
+2. **Secure provider bootstrap** — select configured providers and mint short-lived Desktop credentials while retaining backend keys for server-hosted provider sessions.
+3. **Freeze provider contracts** — versioned provider, transport, media, event, tool, error, and capability interfaces.
+4. **Freeze endpoint contracts** — versioned frontend capabilities, participant identity, runtime placement, audio bridge, floor control, and recovery.
+5. **Implement Desktop duplex** — OpenAI WebRTC and xAI WebSocket/AudioWorklet with bounded playback and cancellation.
+6. **Normalize events** — map provider and endpoint events into stable participant, transcript, interruption, error, and tool-call records.
+7. **Bridge Hermes tools** — enforce initiator/participant scope and linked-channel approvals before returning results to the provider.
+8. **Preserve continuity** — record finalized turns with endpoint/provider/participant attribution in dedicated Hermes voice sessions.
+9. **Productize Desktop UX** — capability-driven provider settings, call controls, diagnostics, accessibility, and recovery.
+10. **Add Discord duplex** — reuse Hermes's existing Discord identity/authorization/voice connection through a stable continuous-media seam and bypass its STT/TTS path during duplex mode.
+11. **Add Telegram voice plugins** — Bot API voice notes plus an optional isolated MTProto live-call sidecar with conservative tool policy.
+12. **Harden and release** — provider/endpoint fixtures, DAVE and MTProto compatibility gates, live smoke tests, secret scanning, install/rollback, and drift reports.
 
 The ordered implementation specs live in [`.agents/specs/`](.agents/specs/).
 
 ## Core decisions
 
-- **Provider contract above wire protocol:** UI, Hermes tools, and persistence consume stable domain events—not raw OpenAI/xAI messages.
-- **Transport is replaceable:** WebRTC, event channels, WebSocket, and Web Audio are separate adapters under one duplex transport interface.
-- **Capability negotiation, not provider-name branching:** semantic VAD, resumption, codecs, voices, rate-limit events, cancellation, and transport support are advertised at runtime.
-- **Provider-specific behavior is retained:** the shared contract covers portable semantics, while a namespaced extension envelope preserves useful features such as xAI resumption or OpenAI WebRTC output truncation.
-- **Ephemeral browser credentials:** `OPENAI_API_KEY` and `XAI_API_KEY` stay on the backend. The renderer receives only a short-lived, call-bound authorization descriptor.
-- **Direct media path:** after bootstrap, audio flows between Desktop and the selected provider; Hermes is not an audio proxy.
-- **Hermes owns actions:** providers receive function schemas, but Hermes remains the authenticated executor and policy boundary.
-- **Pinned production models:** aliases such as `*-latest` are allowed for development discovery, not default production configuration.
-- **Dedicated voice sessions:** each call writes to its own durable Hermes session, avoiding mutation of a concurrently active text agent.
-- **Plugin first:** missing stable Hermes seams are proposed upstream rather than patched into a fork.
+- **Provider and endpoint contracts are independent:** shared orchestration connects any compatible human endpoint to any compatible duplex provider.
+- **Runtime placement is negotiated:** Desktop uses direct ephemeral connections; Discord and Telegram live media use trusted server provider sessions.
+- **Capability negotiation replaces name branching:** transport, codecs, VAD, cancellation, attribution, live/store-and-forward mode, and recovery are explicit.
+- **Discord is genuinely duplex:** participant audio is streamed continuously to the provider; provider audio is paced back into the channel; speech flushes output and cancels the response.
+- **Telegram is split honestly:** Bot API voice notes are asynchronous. Live calls require an MTProto user/tgcalls sidecar and are opt-in experimental initially.
+- **Voice presence is not tool authority:** other speakers never inherit the call initiator's consequential Hermes permissions.
+- **Uncertain attribution stays uncertain:** endpoints downgrade capabilities and tool catalogs rather than inventing speaker identity.
+- **Hermes owns actions:** provider function calls still pass through Hermes policy, approvals, middleware, and bounded result shaping.
+- **No raw audio by default:** only finalized transcripts, tool records, participant attribution level, and call metadata persist.
+- **Pinned production behavior:** model, provider adapter, endpoint adapter, voice protocol, and native call-engine versions do not auto-upgrade.
+- **Plugin first:** missing stable Hermes media seams are proposed upstream; stable installation does not patch the user's checkout.
 
 ## Repository layout (target)
 
 ```text
 .
+├── core/
+│   └── src/                     # call router, contracts, media bridge, floor control
 ├── desktop/
 │   └── src/
-│       ├── core/             # call state, domain events, shared media contracts
+│       ├── endpoint/            # microphone, speaker, call UI
 │       └── providers/
-│           ├── openai/       # WebRTC + OpenAI protocol adapter
-│           └── xai/          # WebSocket + PCM audio adapter
+│           ├── openai/          # WebRTC + OpenAI protocol
+│           └── xai/             # WebSocket + AudioWorklet PCM
 ├── backend/
 │   └── src/hermes_duplex_voice/
-│       ├── core/             # call registry, policy, persistence
-│       └── providers/
-│           ├── openai.py     # client-secret bootstrap
-│           └── xai.py        # ephemeral-token bootstrap
-├── scripts/
-├── tests/fixtures/providers/
+│       ├── core/                # call registry, policy, persistence
+│       └── providers/           # OpenAI/xAI server runtimes + bootstrap
+├── endpoints/
+│   ├── discord/                 # Gateway voice endpoint plugin
+│   ├── telegram-bot/            # Bot API voice-message endpoint
+│   └── telegram-mtproto/        # isolated optional live-call sidecar
+├── tests/fixtures/
+│   ├── providers/
+│   └── endpoints/
 ├── docs/
 │   └── architecture.md
 └── .agents/specs/
 ```
 
-## Non-goals for the first release
+## Non-goals for the first stable release
 
-- SIP/PSTN calling or conference-room transport
-- replacing Hermes's built-in microphone implementation in core
-- proxying raw audio through Hermes
-- pretending all providers have identical capabilities
-- generic user-supplied endpoints or arbitrary protocol plugins
-- exposing every Hermes tool by default
+- SIP/PSTN calling
+- cross-platform conference bridging
+- Discord video or Go Live
+- Telegram private calls, RTMP publishing, or new E2E conference-call support
+- treating Telegram voice messages as realtime duplex
+- acoustic diarization of mixed anonymous audio
+- arbitrary user-supplied provider/platform endpoints
+- stealth recording or raw-audio retention
+- exposing every Hermes tool to every voice participant
 - silently executing consequential tools without Hermes approval policy
 
 ## References
 
 - [OpenAI Realtime API with WebRTC](https://developers.openai.com/api/docs/guides/realtime-webrtc)
-- [OpenAI Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)
+- [OpenAI Realtime API with WebSocket](https://developers.openai.com/api/docs/guides/realtime-websocket)
 - [xAI Voice Agent API](https://docs.x.ai/developers/model-capabilities/audio/voice-agent)
 - [xAI ephemeral tokens](https://docs.x.ai/developers/model-capabilities/audio/ephemeral-tokens)
-- [Hermes Desktop](https://hermes-agent.nousresearch.com/docs/user-guide/desktop)
+- [Discord voice connections](https://docs.discord.com/developers/topics/voice-connections)
+- [Telegram Bot API](https://core.telegram.org/bots/api)
+- [Telegram `phone.joinGroupCall`](https://core.telegram.org/method/phone.joinGroupCall)
+- [Hermes voice mode](https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode)
 - [Hermes plugins](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)
 
 ## License

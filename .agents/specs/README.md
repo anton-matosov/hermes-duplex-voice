@@ -4,22 +4,25 @@ These specifications are ordered. A later spec may depend on contracts establish
 
 | Order | Specification | Outcome |
 |---:|---|---|
-| 001 | [Repository scaffold and plugin packaging](001-repository-scaffold-and-plugin-packaging.md) | Buildable provider-structured desktop/backend plugins and rollback |
-| 002 | [Secure provider bootstrap broker](002-secure-realtime-session-broker.md) | OpenAI client secrets, xAI ephemeral tokens, and call lifecycle |
-| 003 | [Provider, transport, and media contracts](003-provider-adapter-contracts.md) | Stable capability-driven seams and reusable contract suite |
-| 004 | [Desktop duplex voice runtime](004-desktop-duplex-voice-runtime.md) | OpenAI WebRTC and xAI WebSocket/AudioWorklet media |
-| 005 | [Provider events and transcripts](005-provider-events-and-transcripts.md) | Normalized lifecycle plus delta/cumulative transcript handling |
-| 006 | [Hermes function-tool bridge](006-hermes-function-tool-bridge.md) | Provider-neutral, scoped Hermes tool execution |
-| 007 | [Hermes session continuity](007-hermes-session-continuity.md) | Durable provider-attributed voice history and replay dedupe |
-| 008 | [Desktop product UX and configuration](008-desktop-product-ux-and-configuration.md) | Capability-driven provider UI, settings, diagnostics, accessibility |
-| 009 | [Hardening, compatibility, and release](009-hardening-compatibility-and-release.md) | Drift-tested OpenAI+xAI release candidate |
+| 001 | [Repository scaffold and plugin packaging](001-repository-scaffold-and-plugin-packaging.md) | Buildable provider/endpoint-structured plugins, optional sidecar, and rollback |
+| 002 | [Secure provider bootstrap broker](002-secure-realtime-session-broker.md) | Desktop ephemeral credentials, server provider sessions, and call lifecycle |
+| 003 | [Provider, transport, and media contracts](003-provider-adapter-contracts.md) | Stable provider capability seams and reusable contract suite |
+| 004 | [Voice endpoint and channel contracts](004-voice-endpoint-and-channel-contracts.md) | Frontend capabilities, placement, participant identity, media bridge, and floor control |
+| 005 | [Desktop duplex voice runtime](005-desktop-duplex-voice-runtime.md) | OpenAI WebRTC and xAI WebSocket/AudioWorklet media |
+| 006 | [Provider events and transcripts](006-provider-events-and-transcripts.md) | Normalized lifecycle plus delta/cumulative transcript handling |
+| 007 | [Hermes function-tool bridge](007-hermes-function-tool-bridge.md) | Endpoint-aware, provider-neutral, scoped Hermes tool execution |
+| 008 | [Hermes session continuity](008-hermes-session-continuity.md) | Durable provider/endpoint/participant-attributed history and replay dedupe |
+| 009 | [Desktop product UX and configuration](009-desktop-product-ux-and-configuration.md) | Capability-driven provider UI, settings, diagnostics, accessibility |
+| 010 | [Discord duplex voice endpoint plugin](010-discord-duplex-voice-endpoint-plugin.md) | Voice Gateway v8/DAVE full-duplex channel adapter with identity and barge-in |
+| 011 | [Telegram voice endpoint plugins](011-telegram-voice-endpoint-plugins.md) | Bot API voice notes plus optional MTProto/tgcalls live sidecar |
+| 012 | [Hardening, compatibility, and release](012-hardening-compatibility-and-release.md) | Drift-tested provider and endpoint release candidate |
 
 ## Definition of done for every spec
 
 - Scope and non-goals remain explicit.
 - New behavior has automated tests.
-- Provider wire types remain inside provider modules.
-- Shared behavior branches on capabilities rather than provider IDs.
+- Provider and platform wire types remain inside their adapters.
+- Shared behavior branches on capabilities rather than provider/endpoint IDs.
 - Security-sensitive logs are redacted.
 - Failure paths are visible, bounded, and recoverable.
 - Public/versioned contracts are documented before dependent work.
@@ -28,13 +31,18 @@ These specifications are ordered. A later spec may depend on contracts establish
 
 ## Cross-cutting constraints
 
-1. `OPENAI_API_KEY`, `XAI_API_KEY`, and future permanent provider credentials stay backend-only.
-2. Provider media flows directly between Desktop and the selected voice API.
-3. OpenAI uses WebRTC; initial xAI uses WebSocket with explicit AudioWorklet media handling.
-4. Tool execution is server-authoritative and fail-closed.
-5. Raw audio is not stored by default.
-6. Voice calls use dedicated Hermes sessions rather than mutating an active text session.
-7. Runtime desktop output is one ESM file compatible with Hermes import restrictions.
-8. Production profiles pin versioned models; floating aliases never auto-upgrade stable installs.
-9. Provider capability removal fails bootstrap instead of silently changing safety/behavior.
-10. External network calls and live paid tests are opt-in.
+1. Provider keys stay in trusted provider runtimes; Discord/Telegram credentials stay in their platform runtimes.
+2. Desktop media connects directly to providers; channel media uses trusted server provider sessions.
+3. OpenAI Desktop uses WebRTC; initial xAI Desktop uses WebSocket with explicit AudioWorklet media handling.
+4. Endpoint mode, placement, participant attribution, and media capabilities are negotiated before call creation.
+5. Tool execution is server-authoritative, participant-aware, and fail-closed.
+6. Voice-channel presence never grants another participant's Hermes authority.
+7. Raw audio is not stored by default.
+8. Live calls use dedicated Hermes sessions rather than mutating an active text session.
+9. Runtime Desktop output is one ESM file compatible with Hermes import restrictions.
+10. Discord requires current Voice Gateway/DAVE compatibility; obsolete encryption paths fail closed.
+11. Telegram Bot API voice messages are never represented as live duplex.
+12. Telegram live calls require an isolated, explicitly authorized MTProto user session and conservative tool policy.
+13. Production profiles pin provider models, adapter ranges, platform protocols, and native call-engine versions.
+14. Capability removal fails bootstrap instead of silently changing safety or behavior.
+15. External network calls and live paid/account tests are opt-in.

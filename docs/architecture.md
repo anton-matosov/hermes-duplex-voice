@@ -2,96 +2,106 @@
 
 ## 1. Purpose
 
-Hermes Duplex Voice adds low-latency, full-duplex, native speech-to-speech conversation to Hermes Desktop. OpenAI Realtime is the default provider; xAI Grok Voice is a second complete provider. The two deliberately use different browser transports—WebRTC and WebSocket—to force a durable internal boundary instead of an OpenAI-shaped UI with a renamed base URL.
+Hermes Duplex Voice adds low-latency, native speech-to-speech conversation to multiple Hermes frontends. OpenAI Realtime is the default provider and xAI Grok Voice is a second complete provider. Hermes Desktop, Discord voice channels, Telegram voice messages, and an optional Telegram MTProto group-call sidecar are endpoint adapters above the same provider/session/tool core.
 
-The defining path is always:
+The defining live path is:
 
 ```text
-microphone audio → native duplex model → generated audio
+participant audio → native duplex model → generated audio
 ```
 
-Text transcripts are observability and continuity artifacts, not an intermediate inference pipeline.
+Text transcripts are observability and continuity artifacts, not an intermediate inference pipeline. Telegram Bot API voice messages use the same native audio model but are store-and-forward and are never described as realtime duplex.
 
 ## 2. Design principles
 
-1. **Portable semantics, provider-specific wire protocols.** Shared code understands `user.speech_started`, not `input_audio_buffer.speech_started`; adapters own raw event names and payloads.
-2. **Transport is not the provider.** WebRTC, data channels, WebSocket framing, audio capture, and playback implement replaceable transport/media contracts.
-3. **Capabilities beat conditionals.** UI and orchestration branch on advertised capabilities—not `if provider === "xai"` scattered through the codebase.
-4. **Do not flatten useful differences.** A small portable core is normalized; provider-only features remain accessible through namespaced extensions.
-5. **Secrets stay trusted.** Permanent provider keys live only on the Hermes backend. The renderer receives a short-lived, call-bound authorization descriptor.
-6. **Media stays direct.** Once a call is bootstrapped, media flows between Desktop and the selected provider, never through Hermes.
-7. **Hermes remains the action boundary.** The voice model requests tools; Hermes resolves scope, approval, execution, and durable history.
-8. **One authority per concern.** The provider owns the live model conversation, Desktop owns media/UI state, and Hermes owns policy and durable sessions.
-9. **Fail closed.** Unknown tools, unsupported capabilities, malformed events, expired calls, and provider drift cannot widen access or silently degrade safety.
-10. **Pin production behavior.** Production profiles use versioned models and adapter protocol versions. Floating `latest` aliases are discovery/development options only.
+1. **Providers and frontends are separate axes.** A provider adapter connects to a model; an endpoint adapter connects to Desktop, Discord, or Telegram.
+2. **Portable semantics, platform-specific wire protocols.** Shared code understands participant speech and response interruption, not OpenAI, Discord, or Telegram event names.
+3. **Transport is not identity.** WebRTC, WebSocket, Discord RTP/Opus, Telegram Bot API files, and tgcalls media implement replaceable transport/media contracts.
+4. **Capabilities beat conditionals.** Orchestration branches on advertised capabilities, runtime placement, attribution, and formats—not provider or platform names.
+5. **Do not flatten useful differences.** Provider and endpoint extensions remain namespaced while a small portable core stays stable.
+6. **Choose the shortest secure media path.** Desktop connects directly to providers with ephemeral credentials. Server-hosted channel media terminates at the Hermes gateway/sidecar and uses server-to-server provider sessions.
+7. **Secrets stay in their trust zone.** Permanent provider keys remain in the backend; Discord tokens remain in the gateway; Telegram MTProto sessions remain in the sidecar.
+8. **Hermes remains the action boundary.** The model may request tools, but Hermes resolves scope, participant authority, approvals, execution, and durable history.
+9. **Identity is not audio presence.** Joining a voice channel never grants the initiator's tool permissions to every speaker.
+10. **Be honest about modality.** Voice messages cannot satisfy a live-duplex requirement, and uncertain speaker attribution is recorded as uncertain.
+11. **Fail closed.** Unknown tools, unsupported encryption, unattributed consequential actions, malformed events, and protocol drift cannot widen access.
+12. **Pin production behavior.** Production profiles pin model, provider adapter, endpoint adapter, voice protocol, and call-engine compatibility ranges.
 
-## 3. System context
+## 3. Terminology and support matrix
+
+- **Provider:** native duplex model service, initially OpenAI Realtime or xAI Grok Voice.
+- **Endpoint:** human-facing audio surface, such as Desktop microphone/speaker or a Discord voice channel.
+- **Runtime placement:** process that owns an adapter: renderer, Hermes gateway/backend, or isolated sidecar.
+- **Call:** one provider conversation bound to one endpoint scope and one dedicated Hermes session.
+- **Participant:** endpoint-native identity attached to input audio when the endpoint can prove it.
+
+Initial endpoint matrix:
+
+| Endpoint | Runtime | Input/output | Mode | Attribution | Initial status |
+|---|---|---|---|---|---|
+| Hermes Desktop | renderer | microphone/speaker | live duplex | strong local profile | required |
+| Discord voice channel | gateway | Voice Gateway v8, RTP/Opus, DAVE | live duplex | strong per Discord user when mapped | required |
+| Telegram Bot API voice message | gateway | OGG/Opus voice notes | store-and-forward | strong message sender | supported, not duplex |
+| Telegram group call | isolated MTProto/tgcalls sidecar | live call-engine PCM | live duplex | capability-dependent | opt-in experimental |
+
+Telegram's HTTP Bot API can receive and send voice messages but cannot join a live group call. Telegram currently marks `phone.joinGroupCall` as user-only and requires a local tgcalls-generated join payload. The live endpoint therefore uses a separately authorized, visible Telegram user account—not the bot token.
+
+## 4. System context
 
 ```text
-┌──────────────────────────────────────────────────────────────────────┐
-│ Hermes Desktop renderer                                             │
-│                                                                      │
-│ Call UI ─► CallController ─► DuplexProviderRegistry                  │
-│                    │                    │                            │
-│                    │          ┌─────────┴──────────┐                 │
-│                    │          │                    │                 │
-│                    │    OpenAI adapter       xAI adapter             │
-│                    │    WebRTC + data        WebSocket +             │
-│                    │    channel              AudioWorklets           │
-│                    │          │                    │                 │
-│                    └──────────┴── normalized events ──────────────┐   │
-│                                                                  │   │
-│ ctx.rest() ──────────────────────────────────────────────────────┼───┼──┐
-└──────────────────────────────────────────────────────────────────┼───┘  │
-                                                                   │      │
-                                                     authenticated │      │
-                                                     plugin REST   │      │
-                                                                   ▼      │
-┌──────────────────────────────────────────────────────────────────────┐  │
-│ Hermes backend                                                       │  │
-│                                                                      │  │
-│ Call API ─► BackendProviderRegistry                                  │  │
-│                 ├─ OpenAI bootstrap ──► OpenAI client secrets        │  │
-│                 └─ xAI bootstrap ─────► xAI ephemeral tokens         │  │
-│                                                                      │  │
-│ Hermes tool-policy bridge ─► dispatcher/approvals                    │  │
-│ Voice-session repository ───► Hermes SessionDB                       │  │
-└──────────────────────────────────────────────────────────────────────┘  │
-                                                                          │
-                 direct provider media/events                             │
-Desktop adapter ◄═════════════════════════════════════════════════════════╝
-       ├────────────────────────────► OpenAI Realtime API
-       └────────────────────────────► xAI Voice Agent API
+                                 ┌────────────────────────────────────┐
+                                 │ Hermes duplex backend/core         │
+                                 │                                    │
+                                 │ CallRouter + capability negotiation│
+                                 │ Provider registry                  │
+                                 │ Endpoint registry                  │
+                                 │ Floor/participant controller       │
+                                 │ Hermes tools + approvals           │
+                                 │ Session/event repository           │
+                                 └──────┬───────────────┬─────────────┘
+                                        │               │
+                    authenticated REST  │               │ local IPC/in-process
+                                        │               │
+┌───────────────────────────────────────▼──┐     ┌──────▼───────────────────────┐
+│ Hermes Desktop renderer                  │     │ Gateway/channel runtimes       │
+│ Call UI + Desktop endpoint               │     │                                │
+│ OpenAI WebRTC provider runtime           │     │ Discord endpoint               │
+│ xAI WebSocket/AudioWorklet runtime       │     │ Telegram voice-message endpoint│
+└───────────────┬──────────────────────────┘     │ Telegram MTProto sidecar       │
+                │ direct ephemeral media/events  │ Server provider runtimes       │
+                │                                └───────┬────────────────────────┘
+                │                                        │ server WebSocket media
+                ▼                                        ▼
+        OpenAI / xAI voice APIs                   OpenAI / xAI voice APIs
+
+External endpoint media:
+Discord users ◄══ Voice Gateway/RTP/DAVE ══► Discord endpoint
+Telegram users ◄══ Bot API voice notes ═════► Telegram message endpoint
+Telegram users ◄══ MTProto/tgcalls media ═══► Telegram live sidecar
 ```
 
-## 4. Stable internal contracts
+The backend and channel runtime may share a process, but contracts do not require that deployment. The Telegram live sidecar is isolated because native call-engine dependencies and MTProto user sessions have a different security and operational profile.
 
-Internal contracts are versioned independently from provider APIs. Breaking changes increment `contract_version`; additive fields do not. Desktop and backend exchange their supported version ranges during `/capabilities` and `POST /calls`.
+## 5. Stable internal contracts
 
-### 4.1 Provider identity and model selection
+Internal contracts are versioned independently from upstream APIs. Breaking changes increment `contractVersion`; additive fields do not. All runtimes exchange supported ranges and capability fingerprints before opening media.
 
-A provider/model reference is structured, never inferred from a model-name prefix:
+### 5.1 Provider identity and capabilities
 
 ```ts
 type ProviderId = 'openai' | 'xai';
+type RuntimePlacement = 'renderer' | 'gateway' | 'sidecar';
 
 type VoiceModelRef = {
   provider: ProviderId;
-  model: string;              // versioned production model name
-  adapterVersion: string;     // implementation compatibility version
+  model: string;
+  adapterVersion: string;
 };
-```
 
-Provider endpoints are compiled into trusted adapters. Configuration may select a known provider/model but may not supply arbitrary WebSocket/HTTP URLs; that prevents credential exfiltration and SSRF.
-
-### 4.2 Capability descriptor
-
-Every adapter advertises a descriptor returned by backend `/capabilities` and refined by call bootstrap:
-
-```ts
 type DuplexCapabilities = {
+  placements: RuntimePlacement[];
   transports: Array<'webrtc' | 'websocket'>;
-  authentication: 'ephemeral_token';
+  clientAuthentication: Array<'ephemeral_token' | 'backend_key'>;
   inputAudio: AudioFormat[];
   outputAudio: AudioFormat[];
   turnDetection: Array<'semantic_vad' | 'server_vad' | 'manual'>;
@@ -108,26 +118,68 @@ type DuplexCapabilities = {
 };
 ```
 
-The core asks for required capabilities before creating a call. Unsupported optional features are disabled visibly; unsupported required features reject bootstrap with a specific reason.
+Known endpoints and provider URLs are compiled into trusted adapters. Configuration selects known IDs and pinned models; it cannot supply arbitrary credential destinations.
 
-Initial matrix:
+### 5.2 Endpoint identity and capabilities
 
-| Capability | OpenAI Realtime | xAI Grok Voice |
-|---|---|---|
-| Browser transport | WebRTC | WebSocket |
-| Browser media | WebRTC tracks | AudioWorklet PCM stream/jitter buffer |
-| Ephemeral auth | client secret | ephemeral token via WebSocket subprotocol |
-| Default VAD | semantic VAD | server VAD |
-| Manual response cancel | supported | supported |
-| Automatic barge-in | WebRTC/provider managed | server VAD + local playback flush |
-| Function tools | supported | supported |
-| Transcript updates | provider deltas/finals | cumulative `updated` plus finals when configured |
-| Conversation resumption | not assumed | opt-in xAI extension, bounded by provider expiry |
-| Rate-limit events | advertised when available | not emitted |
+```ts
+type EndpointMode = 'live_duplex' | 'voice_message';
 
-This matrix is generated from adapter descriptors and tested; it is not duplicated in UI components.
+type EndpointCapabilities = {
+  mode: EndpointMode;
+  placements: RuntimePlacement[];
+  inputAudio: AudioFormat[];
+  outputAudio: AudioFormat[];
+  continuousInput: boolean;
+  continuousOutput: boolean;
+  participantAttribution: 'strong' | 'best_effort' | 'none';
+  separateParticipantStreams: boolean;
+  multiParticipant: boolean;
+  localOutputFlush: boolean;
+  textSideChannel: boolean;
+  resumableTransport: boolean;
+  extensions: Record<string, unknown>;
+};
 
-### 4.3 Backend bootstrap adapter
+type ParticipantRef = {
+  endpoint: string;
+  accountId: string;
+  conversationId: string;
+  participantId: string;
+  displayName?: string;
+  authorizationSubject?: string;
+};
+```
+
+The capability fingerprint is captured at call creation. A Telegram voice-message endpoint with `continuousInput: false` cannot negotiate a call requiring `live_duplex` or barge-in.
+
+### 5.3 Provider runtime contract
+
+```ts
+interface DuplexProviderAdapter {
+  readonly id: ProviderId;
+  readonly adapterVersion: string;
+  capabilities(): DuplexCapabilities;
+
+  connect(args: ProviderConnectArgs): Promise<DuplexProviderSession>;
+}
+
+interface DuplexProviderSession {
+  updateSession(patch: PortableSessionPatch): Promise<void>;
+  writeInput(frame: AudioFrame): void;
+  commitInput?(): Promise<void>;
+  sendToolOutputs(outputs: ToolOutput[]): Promise<void>;
+  requestResponse(): Promise<void>;
+  cancelResponse(reason: CancelReason): Promise<void>;
+  close(reason: CloseReason): Promise<void>;
+  onAudio(listener: (frame: AudioFrame) => void): Unsubscribe;
+  onEvent(listener: (event: DuplexEvent) => void): Unsubscribe;
+}
+```
+
+A renderer implementation may bind WebRTC tracks directly instead of exposing frames. A gateway implementation uses bounded frame queues and server WebSockets. Provider wire types remain inside `providers/<id>`.
+
+### 5.4 Backend provider bootstrap
 
 ```py
 class BackendProviderAdapter(Protocol):
@@ -139,100 +191,45 @@ class BackendProviderAdapter(Protocol):
     async def create_client_authorization(
         self, call, profile, requested_capabilities
     ) -> ClientAuthorization: ...
+    async def open_server_session(self, call, profile) -> ServerProviderSession: ...
     def redact_upstream_error(self, error) -> ProviderError: ...
 ```
 
-`ClientAuthorization` is a tagged union. Shared code never assumes a field named `client_secret`:
+`ClientAuthorization` is a tagged union. Shared code never assumes a field named `client_secret`. Server-hosted endpoints receive no client authorization descriptor and never receive provider keys; the trusted provider runtime opens the upstream session.
 
-```json
-{
-  "kind": "ephemeral_token",
-  "value": "redacted-in-logs",
-  "expires_at": 0,
-  "transport": {
-    "kind": "webrtc",
-    "endpoint_id": "openai-realtime-calls"
-  }
-}
-```
-
-or:
-
-```json
-{
-  "kind": "ephemeral_token",
-  "value": "redacted-in-logs",
-  "expires_at": 0,
-  "transport": {
-    "kind": "websocket",
-    "endpoint_id": "xai-realtime",
-    "subprotocol_prefix": "xai-client-secret."
-  }
-}
-```
-
-Actual endpoint URLs remain adapter-owned and allowlisted. The descriptor exposes only endpoint IDs and safe connection parameters.
-
-### 4.4 Desktop provider adapter
+### 5.5 Endpoint adapter contract
 
 ```ts
-interface DuplexProviderAdapter {
-  readonly id: ProviderId;
+interface VoiceEndpointAdapter {
+  readonly id: string;
   readonly adapterVersion: string;
-  capabilities(): DuplexCapabilities;
+  capabilities(): EndpointCapabilities;
+  connect(args: EndpointConnectArgs): Promise<VoiceEndpointSession>;
+}
 
-  connect(args: ConnectArgs): Promise<DuplexSession>;
-  updateSession(patch: PortableSessionPatch): Promise<void>;
-  setMuted(muted: boolean): Promise<void>;
-  sendToolOutputs(outputs: ToolOutput[]): Promise<void>;
-  requestResponse(): Promise<void>;
-  cancelResponse(reason: CancelReason): Promise<void>;
+interface VoiceEndpointSession {
+  input(listener: (frame: ParticipantAudioFrame) => void): Unsubscribe;
+  events(listener: (event: EndpointEvent) => void): Unsubscribe;
+  writeOutput(frame: AudioFrame): void;
+  flushOutput(reason: 'barge_in' | 'cancel' | 'close'): void;
+  postStatus(message: EndpointStatusMessage): Promise<void>;
   close(reason: CloseReason): Promise<void>;
-
-  onEvent(listener: (event: DuplexEvent) => void): Unsubscribe;
 }
 ```
 
-The adapter composes a transport and media implementation. It translates portable session configuration into provider wire configuration and validates any provider extension before use.
+A `MediaBridge` negotiates formats or inserts explicit resampler, channel mapper, jitter buffer, and codec stages. It never infers format from provider or endpoint names.
 
-### 4.5 Transport and media contracts
-
-```ts
-interface DuplexTransport {
-  open(auth: ClientAuthorization): Promise<void>;
-  sendControl(event: ProviderClientEvent): Promise<void>;
-  close(): Promise<void>;
-  onControl(listener: (event: unknown) => void): Unsubscribe;
-  onState(listener: (state: TransportState) => void): Unsubscribe;
-}
-
-interface AudioSource {
-  start(format: AudioFormat, sink: (frame: AudioFrame) => void): Promise<void>;
-  setMuted(muted: boolean): void;
-  stop(): Promise<void>;
-}
-
-interface AudioSink {
-  start(format: AudioFormat): Promise<void>;
-  enqueue(frame: AudioFrame): void;
-  flush(reason: 'barge_in' | 'cancel' | 'close'): void;
-  stop(): Promise<void>;
-}
-```
-
-WebRTC transports can bind media tracks directly and bypass frame callbacks. Frame-based WebSocket media uses the same lifecycle and backpressure signals.
-
-### 4.6 Normalized domain events
-
-Only stable semantics enter reducers, persistence, and tool orchestration:
+### 5.6 Normalized domain events
 
 ```ts
 type DuplexEvent =
   | { type: 'session.ready'; providerSessionId: string }
-  | { type: 'user.speech_started'; at: number }
-  | { type: 'user.speech_stopped'; at: number }
-  | { type: 'transcript.user_update'; itemId: string; text: string; mode: 'delta' | 'cumulative' }
-  | { type: 'transcript.user_final'; itemId: string; text: string }
+  | { type: 'participant.joined'; participant: ParticipantRef }
+  | { type: 'participant.left'; participant: ParticipantRef }
+  | { type: 'user.speech_started'; participant?: ParticipantRef; at: number }
+  | { type: 'user.speech_stopped'; participant?: ParticipantRef; at: number }
+  | { type: 'transcript.user_update'; itemId: string; participant?: ParticipantRef; text: string; mode: 'delta' | 'cumulative' }
+  | { type: 'transcript.user_final'; itemId: string; participant?: ParticipantRef; text: string }
   | { type: 'response.started'; responseId: string }
   | { type: 'audio.output_started'; responseId: string }
   | { type: 'transcript.assistant_update'; itemId: string; text: string; mode: 'delta' | 'cumulative' }
@@ -240,182 +237,222 @@ type DuplexEvent =
   | { type: 'response.interrupted'; responseId: string; locallyFlushed: boolean }
   | { type: 'response.completed'; responseId: string }
   | { type: 'tool.requested'; callId: string; name: string; argumentsJson: string; groupId?: string }
+  | { type: 'endpoint.error'; error: EndpointError }
   | { type: 'provider.error'; error: ProviderError }
-  | { type: 'provider.extension'; namespace: ProviderId; name: string; payload: unknown };
+  | { type: 'extension'; namespace: string; name: string; payload: unknown };
 ```
 
-Every normalized event retains a redaction-safe provenance envelope outside persisted conversation content: provider ID, adapter version, provider event type, provider event ID, and receive sequence. Unknown raw events emit a metric/diagnostic and optional `provider.extension`; they never flow directly into UI or tool execution.
+Every event retains a redaction-safe provenance envelope outside persisted conversation content: provider/endpoint IDs, adapter versions, upstream event type/ID, participant attribution level, and receive sequence. Unknown raw events emit diagnostics, never raw UI/tool input.
 
-## 5. Provider implementations
+## 6. Provider implementations and placement
 
-### 5.1 OpenAI Realtime adapter
+### 6.1 OpenAI Realtime
 
-**Backend bootstrap**
+**Desktop renderer**
 
-- Read `OPENAI_API_KEY` only on the backend.
-- Create a client secret through `POST https://api.openai.com/v1/realtime/client_secrets`.
-- Bind the configured session/model where supported.
-- Add a privacy-preserving `OpenAI-Safety-Identifier`.
-- Return a short-lived authorization descriptor with endpoint ID `openai-realtime-calls`.
+1. Backend creates a short-lived client secret with `OPENAI_API_KEY`.
+2. Desktop creates `RTCPeerConnection`, microphone/remote tracks, and a provider data channel.
+3. Desktop posts SDP directly to the allowlisted Realtime calls endpoint.
+4. OpenAI's adapter owns data-channel events, WebRTC output buffering, and unplayed-audio truncation.
 
-**Desktop connection**
+**Gateway/sidecar endpoint**
 
-1. Acquire microphone audio.
-2. Create `RTCPeerConnection`, remote `<audio>`, and provider data channel.
-3. Add the microphone track.
-4. Create and set local SDP.
-5. POST SDP directly to OpenAI's allowlisted Realtime calls endpoint using the ephemeral credential.
-6. Set the SDP answer and wait for peer/data-channel readiness.
+- The trusted backend opens OpenAI's documented server-to-server Realtime WebSocket using `OPENAI_API_KEY` in an authorization header.
+- The media bridge sends bounded base64 audio events and decodes output audio events.
+- The provider key stays inside the provider runtime; channel adapters receive only normalized audio/events.
 
-OpenAI's adapter owns all SDP, data-channel event names, WebRTC output buffering, and automatic unplayed-audio truncation behavior.
+### 6.2 xAI Grok Voice
 
-### 5.2 xAI Grok Voice adapter
+**Desktop renderer**
 
-**Backend bootstrap**
+1. Backend creates an ephemeral token with `XAI_API_KEY`.
+2. Desktop opens the allowlisted xAI WebSocket using `xai-client-secret.<token>` as the subprotocol.
+3. `AudioWorklet` capture/playback uses bounded binary 24 kHz mono PCM16 queues.
+4. The adapter applies authoritative `session.update`, handles cumulative transcript corrections, and flushes playback on interruption.
 
-- Read `XAI_API_KEY` only on the backend.
-- Create an ephemeral token through `POST https://api.x.ai/v1/realtime/client_secrets` with a bounded `expires_after.seconds`.
-- Do not depend on session binding at token creation; send authoritative configuration after WebSocket open. This remains compatible with documented xAI deployments that differ on optional secret-bound session fields.
-- Return a short-lived authorization descriptor with endpoint ID `xai-realtime` and the browser subprotocol prefix.
+**Gateway/sidecar endpoint**
 
-**Desktop connection**
+- The trusted backend opens the server WebSocket with permanent-key authentication supported by the xAI server integration.
+- The same normalized adapter contract handles JSON controls, binary PCM, server VAD, cancellation, tool calls, and optional bounded conversation resumption.
+- Channel adapters never see `XAI_API_KEY` or xAI authentication headers.
 
-1. Acquire the microphone and start an `AudioWorklet` capture pipeline.
-2. Open the allowlisted `wss://api.x.ai/v1/realtime?model=<encoded-pinned-model>` endpoint with `xai-client-secret.<token>` as the WebSocket subprotocol. Browser code never attempts an `Authorization` header.
-3. Send `session.update` with voice, instructions, `server_vad`, tools, and explicit audio formats.
-4. Use binary 24 kHz mono PCM16 for initial input/output transport to avoid base64 overhead; the adapter may negotiate another advertised format later.
-5. Resample browser input to the configured rate in the worklet path, packetize bounded frames, and apply WebSocket backpressure.
-6. Feed binary output frames into an AudioWorklet jitter buffer; JSON frames remain lifecycle/events.
-7. On server VAD interruption, flush queued local output immediately and mark the response interrupted. Use `response.cancel` for manual cancellation/non-VAD mode.
-8. On close, clear queued PCM, terminate worklets, disconnect audio nodes, stop tracks, and close the WebSocket.
+### 6.3 Future providers
 
-xAI transcript `updated` events are cumulative and may correct earlier text. The xAI adapter emits `mode: cumulative`; shared transcript assembly replaces the prior provisional text rather than appending it.
+A new provider implements renderer and/or server placements honestly, declares capabilities, provides redacted fixtures, and passes the provider contract suite. It may not add provider checks to endpoint, tool, UI, or persistence modules.
 
-xAI session resumption is an optional namespaced capability. If enabled, the adapter stores the provider conversation ID only in active call state, reconnects within the provider's documented expiry, deduplicates replayed events, and still persists only finalized turns once. Core behavior must not require resumption.
+## 7. Endpoint implementations
 
-### 5.3 Adding a future provider
+### 7.1 Hermes Desktop
 
-A new provider must implement both bootstrap and desktop adapters, declare capabilities, provide protocol fixtures, pass the provider contract suite, and document its direct media data flow. It may not add provider checks to shared UI, tool, or persistence modules.
+Desktop owns the call UI, microphone/device manager, local audio sink, and ephemeral provider connection. OpenAI uses direct WebRTC; xAI uses direct WebSocket plus AudioWorklets. Backend traffic is bootstrap, tool, event, and close metadata only.
 
-The acceptance gate is architectural: deleting the new adapter directory and registry entry must leave existing provider builds and tests passing.
+### 7.2 Discord voice endpoint
 
-## 6. Provider-neutral call flow
+Hermes already has a turn-based Discord voice path: per-user receive, silence detection, STT, ordinary agent execution, and TTS playback. Duplex mode reuses the existing bot identity, allowlists, role checks, command context, and voice connection through a stable upstream media seam; it bypasses utterance buffering/STT/TTS while active.
 
-1. Desktop requests `/capabilities` and shows configured, ready providers.
-2. User selects a provider profile and explicitly starts a call.
-3. Desktop sends `POST /calls` with provider ID, adapter version, contract range, and required capabilities.
-4. Backend validates the profile, creates a dedicated Hermes voice session, resolves Hermes tool policy, and invokes the selected bootstrap adapter.
-5. Backend returns normalized call configuration, tools, capabilities, and short-lived authorization.
-6. Desktop selects the matching adapter and verifies adapter/contract/capability compatibility before opening media.
-7. Provider adapter establishes direct media and emits normalized events.
-8. Tool requests travel to Hermes backend; results return through the provider adapter.
-9. Final transcript/lifecycle events are batched to Hermes.
-10. Close is idempotent across UI, adapter, transport/media, backend call registry, and durable session.
+The endpoint:
 
-## 7. Backend API contracts
+- joins through Voice Gateway v8 and waits for both voice state/server events;
+- requires Connect/Speak and bidirectional UDP reachability;
+- uses a maintained current Discord voice implementation with RTP encryption and mandatory DAVE E2EE support;
+- receives per-user Opus/PCM with SSRC-to-user mapping and excludes bot audio;
+- converts provider output to paced Discord 48 kHz stereo PCM/Opus;
+- sends speaking state before output and required silence frames after it;
+- uses one active-speaker floor per channel;
+- flushes Discord output and cancels the provider on authorized participant barge-in;
+- links transcript, status, and approvals to the text channel that issued `/duplex join`.
+
+Initial scope is one call per guild with a configurable global limit. The plugin does not open a second gateway login using the same bot token. If Hermes lacks the stable frame/event/output seam, development may use a mutually exclusive replacement adapter; stable install never patches the user's checkout.
+
+### 7.3 Telegram Bot API voice-message endpoint
+
+This endpoint reuses the existing Hermes Telegram bot identity, chat/topic mapping, allowlist, downloads, and `sendVoice` delivery. Each authorized OGG/Opus message opens a short provider session in manual-commit mode, receives a completed audio response, sends one native voice note, and closes.
+
+It advertises `voice_message`, not `live_duplex`; there is no continuous stream, live interruption, or sub-second output. Telegram update/message IDs provide deduplication and strong sender attribution.
+
+### 7.4 Telegram MTProto group-call endpoint
+
+True Telegram live voice requires a separate MTProto user session and local tgcalls-compatible engine:
+
+- interactive authorization as a dedicated user using `api_id`/`api_hash` and optional 2FA;
+- encrypted owner-only session storage with logout/revoke procedures;
+- a visible participant identity and explicit text-side join announcement;
+- allowlisted chats and an authorized Bot API `/duplex join` control path;
+- mutually authenticated loopback/Unix-socket IPC to the Hermes duplex backend;
+- PCM input/output through the shared media bridge;
+- capability-truthful participant attribution.
+
+Initial support targets ordinary group video chats/voice chats. RTMP publishing, private one-to-one calls, and newer E2E conference-call blockchain/key flows are unsupported until implemented and tested explicitly. The Bot API token is never passed to `phone.joinGroupCall`.
+
+Because call-engine libraries may provide best-effort or no speaker mapping for some call types, live Telegram defaults to a restricted/no-tool catalog. Consequential actions require approval from the linked authorized text chat. Uncertain speaker attribution stays uncertain in transcripts.
+
+## 8. Call routing, floor control, and lifecycle
+
+### 8.1 Capability negotiation
+
+1. Resolve endpoint instance and endpoint capabilities.
+2. Resolve provider profile and runtime capabilities.
+3. Select a shared runtime placement and compatible audio path.
+4. Verify requested mode, cancellation, attribution, tools, and recovery requirements.
+5. Bind endpoint scope, initiator authorization, participant policy, provider profile, Hermes session, and capability fingerprints.
+6. Open endpoint and provider sessions; only then announce active listening.
+
+Unsupported combinations fail before opening provider media. A Desktop-only WebRTC provider implementation cannot service Discord until it also advertises a gateway placement.
+
+### 8.2 Active-speaker floor
+
+The first release sends one participant at a time to one provider conversation:
+
+1. endpoint speaking events nominate an authorized participant;
+2. the floor controller grants the first free floor;
+3. other simultaneous streams are dropped/marked overlap, never mixed into unattributed input;
+4. endpoint silence/VAD or provider speech-stop releases the floor;
+5. speech during assistant output flushes endpoint output and requests provider cancellation;
+6. normalized transcript events retain the participant reference and attribution level.
+
+This is a conversational channel, not speaker diarization or a conference mixer.
+
+### 8.3 Recovery
+
+Provider and endpoint recovery are independent. `RecoveryPlan` distinguishes:
+
+- `resume_endpoint_transport`;
+- `resume_provider_transport`;
+- `retry_provider_bootstrap`;
+- `new_provider_session_from_finalized_context`;
+- `not_recoverable`.
+
+A resumed Discord Voice Gateway does not imply provider conversation recovery, and vice versa. Replayed endpoint/provider events are deduplicated before persistence.
+
+## 9. Backend and local IPC contracts
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/capabilities` | Contract versions, provider readiness, models, voices, and safe feature descriptors |
-| `POST` | `/calls` | Select provider, create voice session, resolve tools, mint short-lived authorization |
-| `POST` | `/calls/{voice_call_id}/tools/{provider_call_id}` | Validate and execute one provider function call |
-| `POST` | `/calls/{voice_call_id}/events` | Idempotently append normalized final transcript/lifecycle events |
-| `POST` | `/calls/{voice_call_id}/close` | Finalize metadata and invalidate call state |
+| `GET` | `/capabilities` | Contract, provider, endpoint, model, voice, placement, and safe feature descriptors |
+| `POST` | `/calls` | Create a Desktop or gateway call and bind endpoint/provider/Hermes policy |
+| `POST` | `/calls/{call_id}/tools/{provider_call_id}` | Reauthorize and execute one provider function call |
+| `POST` | `/calls/{call_id}/events` | Idempotently append normalized final transcript/lifecycle events |
+| `POST` | `/calls/{call_id}/approvals` | Resolve linked endpoint approval identity/context |
+| `POST` | `/calls/{call_id}/close` | Finalize metadata and invalidate call state |
 
-`POST /calls` includes:
+`POST /calls` includes endpoint ID/instance/scope, runtime placement, initiator authorization subject, provider profile, adapter/contract ranges, and required capabilities. The response includes negotiated versions, capability fingerprints, tool catalog, Hermes session/call IDs, and—only for direct clients—short-lived provider authorization.
 
-```json
-{
-  "request_id": "uuid",
-  "contract_versions": [1],
-  "provider": "xai",
-  "provider_adapter_version": "1.x",
-  "required_capabilities": ["function_tools", "automatic_interruption"]
-}
-```
+The Telegram sidecar uses an equivalent versioned protocol over mutually authenticated local IPC. It receives a call-scoped capability token, not global Hermes or provider credentials.
 
-The response includes negotiated contract version, provider/model, capability snapshot and fingerprint, provider adapter version, transport descriptor, ephemeral authorization, tool catalog, Hermes session ID, call ID, and expiry. It never returns a permanent provider key or arbitrary endpoint URL.
+## 10. Tool and approval boundary
 
-Every mutating request uses an idempotency key. Backend call state binds provider ID, adapter version, capability fingerprint, authenticated profile, Hermes session, model, and provider tool-call IDs.
+1. Backend resolves endpoint initiator and participant policy.
+2. Hermes produces a canonical tool catalog and fingerprint.
+3. The selected provider adapter serializes that catalog.
+4. Provider emits a normalized tool request.
+5. Backend rechecks call, endpoint, participant attribution, tool fingerprint, scope, and approval requirements.
+6. Consequential requests route to an authorized text-side approver where the endpoint supports it.
+7. Hermes dispatches through normal policy/middleware and returns a bounded result.
+8. The provider adapter sends the output and resumes response generation.
 
-## 8. Tool bridge
+Additional channel participants never inherit the initiator's unrestricted toolset. If speaker identity is best-effort/none, only a restricted read-only catalog or no tools is exposed. Provider-native tools remain disabled unless they traverse an equivalent Hermes policy boundary.
 
-Hermes function tools are provider-neutral internally. Each provider adapter serializes the server-authorized catalog into its wire schema and parses completed calls into `tool.requested`.
+## 11. Durable continuity
 
-Flow:
+Each live call owns a dedicated Hermes voice session. A voice-message exchange owns a bounded child turn/session according to platform session policy.
 
-1. Backend resolves exact enabled/disabled Hermes toolsets.
-2. Backend produces canonical `PortableFunctionTool` schemas and a catalog fingerprint.
-3. Selected adapter converts the catalog to provider session syntax.
-4. Provider emits one or more completed calls.
-5. Desktop posts each normalized request to the backend with provider and catalog fingerprints.
-6. Backend rechecks scope and dispatches through Hermes.
-7. Desktop sends outputs through the adapter; the adapter handles provider ordering rules before requesting continuation.
+Persisted metadata includes:
 
-Provider-native search/MCP tools are disabled initially. They would bypass Hermes policy, logging, and approval boundaries. Only Hermes-backed custom function tools are exposed.
+- endpoint/account/conversation/call scope;
+- provider, model, voice, provider/endpoint adapter versions;
+- runtime placement and capability fingerprints;
+- participant ID and attribution level on finalized user turns;
+- linked text approval context;
+- duration, recovery lineage, and terminal reason.
 
-## 9. Durable continuity
+Final user/assistant transcripts and canonical tool records are stored once. Raw audio, Discord voice tokens/DAVE keys, provider authorization, Telegram login codes, and MTProto session material are not persisted in conversation history.
 
-Each call owns a dedicated Hermes voice session. Persisted metadata includes provider, versioned model, adapter version, capability fingerprint, voice, transport, duration, and terminal reason. Final user/assistant transcripts and canonical tool records are stored once; raw audio and ephemeral authorization are not.
+## 12. Security and privacy model
 
-Provider replay/resumption can repeat events. Deduplication therefore keys on `(provider, provider_session_id, provider_event_id or stable item/call id)` plus local sequence safeguards. Interrupted assistant output records only provider-confirmed/truncated content and delivery metadata.
+- `OPENAI_API_KEY` and `XAI_API_KEY` remain in trusted backend provider runtimes.
+- Ephemeral Desktop credentials live only in memory and are discarded after negotiation/close/expiry.
+- `DISCORD_BOT_TOKEN` remains in the Hermes gateway; voice tokens and DAVE key material are memory-only and redacted.
+- Telegram Bot API tokens remain in the gateway. MTProto `api_id`/`api_hash` and encrypted user session remain in the isolated sidecar.
+- Sidecar IPC is local-only and mutually authenticated with call-scoped least privilege.
+- Provider and endpoint URLs are allowlisted; configuration cannot redirect credentials.
+- Endpoint scope, initiator, participant policy, adapters, capabilities, tools, and provider model are bound to each call.
+- Voice-channel presence is not authentication for tools.
+- Discord/Telegram endpoints visibly announce join/listening/leave and do not record raw audio by default.
+- Logs redact transcripts, tokens, SDP, subprotocols, RTP/PCM frames, tool payloads, participant private data, and session files.
+- Raw audio recording requires a separate explicit consented feature; it is not part of this architecture.
 
-## 10. Security model
+## 13. Reliability and API-drift strategy
 
-- `OPENAI_API_KEY` and `XAI_API_KEY` never enter renderer state, storage, logs, Git, or API responses.
-- Ephemeral credentials are held only in memory, redacted by type, and discarded after negotiation/close/expiry.
-- Endpoint IDs resolve through compiled allowlists; user configuration cannot redirect credentials to arbitrary hosts.
-- Browser WebSocket auth uses the documented ephemeral subprotocol, never query-string tokens.
-- Provider ID/model/adapter/capability fingerprints are bound to each call and revalidated on tool/event requests.
-- Tool names are selected from the server catalog and rechecked at execution.
-- Provider-native tools remain off unless routed through an equivalent Hermes policy boundary.
-- Raw audio is never persisted by default.
-- Logs redact transcripts, tokens, authorization, SDP, tool payloads, WebSocket subprotocol values, and audio frames.
-- Remote Hermes backends remain supported: only bootstrap, tool, and transcript metadata traverse Hermes; direct provider media originates on Desktop.
+### 13.1 Drift containment
 
-## 11. Reliability and API-drift strategy
+- Raw provider/platform payloads exist only inside their adapters.
+- Provider and endpoint adapters expose implementation versions and accepted upstream protocol/library ranges.
+- Production pins models, Discord Voice Gateway/DAVE compatibility, Telegram Bot API/MTProto layer, and tgcalls engine versions.
+- Recorded redacted fixtures cover required lifecycle, media, identity, encryption transition, and error paths.
+- Unknown additive events alert without crashing; missing required semantics fail clearly.
+- Live canaries are opt-in and budget/account isolated.
+- Deletion builds prove every provider and endpoint is independently removable.
 
-### 11.1 Drift containment
+### 13.2 Backpressure and cleanup
 
-- Raw provider payload types exist only inside provider directories.
-- Adapters expose an implementation version and accepted upstream protocol/model range.
-- Models are pinned in production; an explicit discovery job reports newer aliases without auto-switching.
-- Captured, redacted protocol fixtures cover every required lifecycle and error path.
-- Unknown event types and missing required events increment local diagnostics; they do not crash the call.
-- A call records the exact provider/model/adapter/capability snapshot that created it.
-- Startup probes verify credential endpoint shape and configured model availability without exposing credentials.
-- Live canaries run opt-in and budget-capped per provider.
-- Capability removal fails bootstrap instead of silently emulating unsafe behavior.
+Every frame path has bounded queues, timestamps, overflow policy, and metrics. Sustained overflow ends the call rather than growing memory. Output sinks can flush atomically. All sockets, UDP transports, AudioWorklets, encoders/decoders, native call engines, timers, listeners, temp voice-note files, and participant maps share idempotent close semantics.
 
-### 11.2 Backpressure and cleanup
+### 13.3 Failure taxonomy
 
-- WebSocket input checks `bufferedAmount` and uses a bounded audio queue; overflow ends the call rather than growing memory indefinitely.
-- Output uses a bounded jitter buffer and can flush in one worklet command on barge-in.
-- Event/transcript batches are bounded and idempotent.
-- All transports implement one idempotent close contract.
-- Token expiry, permission denial, device loss, ICE failure, WebSocket close codes, provider rate limits, backend restart, and unsupported adapter versions map to actionable error categories.
+Errors distinguish provider authentication/rate limit/model drift, endpoint permissions/encryption/media reachability, participant authorization, local codec/call-engine availability, sidecar authentication, and recoverable transport loss. User-facing status identifies which side failed without leaking upstream secrets.
 
-### 11.3 Reconnection
+## 14. Testing strategy
 
-OpenAI WebRTC does not assume resumability. xAI may advertise opt-in bounded resumption. The core asks the adapter for a `RecoveryPlan`:
+- **Provider contract suite:** lifecycle, capabilities, cancellation, tools, redaction, recovery, and cleanup for OpenAI/xAI renderer and server placements.
+- **Endpoint contract suite:** mode honesty, placement/media negotiation, identity, floor control, barge-in, approval routing, recovery, and cleanup.
+- **Desktop fixtures:** WebRTC/data channel and WebSocket/AudioWorklet paths.
+- **Discord fixtures:** Gateway v8, voice state/server ordering, heartbeat/buffered resume, close codes, RTP/Opus, SSRC mapping, DAVE transitions, pacing, and silence frames.
+- **Telegram Bot API fixtures:** incoming/sent voice notes, topic mapping, size limits, Opus conversion, update dedupe, and proof that live capabilities are rejected.
+- **Telegram MTProto fixtures:** secure session loading, user-only join, tgcalls parameters, participant attribution downgrade, PCM, reconnect, unsupported call types, logout, and sidecar IPC.
+- **Policy tests:** guild/chat isolation, initiator authority, participant non-inheritance, restricted unattributed tools, and linked text approvals.
+- **Live smoke:** budget/account-isolated OpenAI/xAI Desktop, Discord test guild, Telegram Bot API test chat, and opt-in Telegram test account/group call.
+- **Drift tests:** archived old/new provider and platform fixtures tolerate additive changes and reject removed required behavior.
 
-- `not_resumable`: start a new provider/Hermes child session seeded from finalized transcript;
-- `resume_transport`: reconnect with provider conversation ID and deduplicate replay;
-- `retry_bootstrap`: mint fresh authorization before reconnecting.
+## 15. Delivery phases
 
-The UI never labels a new conversation as resumed unless the adapter confirms provider context restoration.
-
-## 12. Testing strategy
-
-- **Provider contract suite:** run identical lifecycle, capability, cancellation, tool, redaction, and cleanup tests against OpenAI and xAI adapters.
-- **OpenAI fixtures:** WebRTC/data-channel session, transcripts, interruption, tool call, errors, and completion.
-- **xAI fixtures:** WebSocket JSON/binary framing, cumulative transcript correction, server VAD interruption, parallel tool calls, resumption replay, unsupported events, and close codes.
-- **Media tests:** mocked WebRTC plus deterministic AudioWorklet/resampler/jitter-buffer tests with generated PCM fixtures.
-- **Backend tests:** both secret endpoints, credential isolation, endpoint allowlist, provider selection, capability negotiation, idempotency, and error redaction.
-- **Hermes integration:** provider-neutral tool and dedicated-session paths run once per adapter fixture.
-- **Live smoke:** separate opt-in, budget-capped OpenAI and xAI tests covering bidirectional audio, barge-in, transcript, harmless Hermes tool, and cleanup.
-- **Drift tests:** archived old/new fixtures prove additive unknown events survive and removed required semantics fail clearly.
-
-## 13. Delivery phases
-
-The implementation is divided into the ordered specifications in [`.agents/specs/`](../.agents/specs/). The provider contract is implemented before either transport, and both initial providers are required for the first release candidate.
+The implementation is divided into the ordered specifications in [`.agents/specs/`](../.agents/specs/). Provider and endpoint contracts precede runtimes. Desktop and Discord live duplex plus Telegram Bot API voice messages are required release surfaces. Telegram MTProto live calls remain opt-in experimental until their account-security, attribution, and call-engine compatibility gates pass.
