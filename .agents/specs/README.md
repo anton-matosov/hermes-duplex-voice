@@ -1,48 +1,60 @@
 # Implementation specifications
 
-These specifications are ordered. A later spec may depend on contracts established by every earlier spec.
+The specs are organized as releasable vertical slices. Track A must produce and validate OpenAI + Desktop before any general provider or endpoint framework is built.
 
-| Order | Specification | Outcome |
+## Track A — OpenAI + Hermes Desktop
+
+| Order | Specification | Exit outcome |
 |---:|---|---|
-| 001 | [Repository scaffold and plugin packaging](001-repository-scaffold-and-plugin-packaging.md) | Buildable provider/endpoint-structured plugins, optional sidecar, and rollback |
-| 002 | [Secure provider bootstrap broker](002-secure-realtime-session-broker.md) | Desktop ephemeral credentials, server provider sessions, and call lifecycle |
-| 003 | [Provider, transport, and media contracts](003-provider-adapter-contracts.md) | Stable provider capability seams and reusable contract suite |
-| 004 | [Voice endpoint and channel contracts](004-voice-endpoint-and-channel-contracts.md) | Frontend capabilities, placement, participant identity, media bridge, and floor control |
-| 005 | [Desktop duplex voice runtime](005-desktop-duplex-voice-runtime.md) | OpenAI WebRTC and xAI WebSocket/AudioWorklet media |
-| 006 | [Provider events and transcripts](006-provider-events-and-transcripts.md) | Normalized lifecycle plus delta/cumulative transcript handling |
-| 007 | [Hermes function-tool bridge](007-hermes-function-tool-bridge.md) | Endpoint-aware, provider-neutral, scoped Hermes tool execution |
-| 008 | [Hermes session continuity](008-hermes-session-continuity.md) | Durable provider/endpoint/participant-attributed history and replay dedupe |
-| 009 | [Desktop product UX and configuration](009-desktop-product-ux-and-configuration.md) | Capability-driven provider UI, settings, diagnostics, accessibility |
-| 010 | [Discord duplex voice endpoint plugin](010-discord-duplex-voice-endpoint-plugin.md) | Voice Gateway v8/DAVE full-duplex channel adapter with identity and barge-in |
-| 011 | [Telegram voice endpoint plugins](011-telegram-voice-endpoint-plugins.md) | Bot API voice notes plus optional MTProto/tgcalls live sidecar |
-| 012 | [Hardening, compatibility, and release](012-hardening-compatibility-and-release.md) | Drift-tested provider and endpoint release candidate |
+| 001 | [Verify extension seams and package plugins](001-verify-extension-seams-and-package.md) | A reversible paired plugin skeleton loads through supported Hermes surfaces |
+| 002 | [OpenAI session broker](002-openai-session-broker.md) | Authenticated backend negotiation keeps the permanent key server-side |
+| 003 | [Desktop OpenAI tracer bullet](003-desktop-openai-tracer-bullet.md) | A real bidirectional WebRTC call works and always cleans up |
+| 004 | [OpenAI events and call state](004-openai-events-and-call-state.md) | Deterministic UI state, transcripts, interruption, and event fixtures |
+| 005 | [Desktop/OpenAI v0.1 release hardening](005-desktop-v0.1-release-hardening.md) | Installable OpenAI/Desktop v0.1 with offline CI and live smoke |
+
+**v0.1 ships here.** It does not depend on tools, persistence, or Specs 008–010.
+
+### Desktop/OpenAI v0.2 integrations
+
+| Order | Specification | Exit outcome |
+|---:|---|---|
+| 006 | [Hermes function-tool bridge](006-hermes-function-tool-bridge.md) | One harmless scoped Hermes tool executes exactly once and speech continues, if a valid host execution seam exists |
+| 007 | [Hermes voice-session continuity](007-hermes-voice-session-continuity.md) | Finalized turns resume as valid dedicated Hermes history through an explicit compatibility seam |
+
+Specs 006–007 enhance the shipped Desktop/OpenAI path. A missing Hermes host seam fails that integration closed; it does not withdraw v0.1 voice support.
+
+## Track B — provider expansion
+
+| Order | Specification | Exit outcome |
+|---:|---|---|
+| 008 | [xAI provider expansion](008-xai-provider-expansion.md) | Provider seam is extracted from two working implementations; xAI works on Desktop |
+
+## Track C — endpoint expansion
+
+| Order | Specification | Exit outcome |
+|---:|---|---|
+| 009 | [Discord endpoint expansion](009-discord-endpoint-expansion.md) | First server-hosted multi-user duplex endpoint validates endpoint abstractions |
+| 010 | [Telegram endpoint expansion](010-telegram-endpoint-expansion.md) | Async Bot API voice notes ship separately; optional live sidecar has its own gate |
 
 ## Definition of done for every spec
 
-- Scope and non-goals remain explicit.
-- New behavior has automated tests.
-- Provider and platform wire types remain inside their adapters.
-- Shared behavior branches on capabilities rather than provider/endpoint IDs.
-- Security-sensitive logs are redacted.
-- Failure paths are visible, bounded, and recoverable.
-- Public/versioned contracts are documented before dependent work.
+- Scope and non-goals are explicit.
+- New behavior has tests at the lowest useful layer and at its real integration seam.
+- Security-sensitive logs and errors are redacted.
+- Failure and cleanup paths are bounded and observable.
 - No implementation patches the user's Hermes checkout.
+- Default CI requires no provider key, paid API, microphone, or platform account.
 - Verification commands pass from a clean checkout.
+- An abstraction is introduced only when the current spec has at least two concrete implementations or an unavoidable compatibility boundary.
 
-## Cross-cutting constraints
+## Cross-cutting invariants
 
-1. Provider keys stay in trusted provider runtimes; Discord/Telegram credentials stay in their platform runtimes.
-2. Desktop media connects directly to providers; channel media uses trusted server provider sessions.
-3. OpenAI Desktop uses WebRTC; initial xAI Desktop uses WebSocket with explicit AudioWorklet media handling.
-4. Endpoint mode, placement, participant attribution, and media capabilities are negotiated before call creation.
-5. Tool execution is server-authoritative, participant-aware, and fail-closed.
-6. Voice-channel presence never grants another participant's Hermes authority.
-7. Raw audio is not stored by default.
-8. Live calls use dedicated Hermes sessions rather than mutating an active text session.
-9. Runtime Desktop output is one ESM file compatible with Hermes import restrictions.
-10. Discord requires current Voice Gateway/DAVE compatibility; obsolete encryption paths fail closed.
-11. Telegram Bot API voice messages are never represented as live duplex.
-12. Telegram live calls require an isolated, explicitly authorized MTProto user session and conservative tool policy.
-13. Production profiles pin provider models, adapter ranges, platform protocols, and native call-engine versions.
-14. Capability removal fails bootstrap instead of silently changing safety or behavior.
-15. External network calls and live paid/account tests are opt-in.
+1. Native audio-to-audio; no hidden STT → text LLM → TTS substitution.
+2. Desktop media is direct to the provider.
+3. Permanent provider keys stay in trusted backend runtimes.
+4. Runtime Desktop output is one ESM file using only Hermes-supported imports.
+5. Tool schema generation and execution use identical server-resolved scope; failure exposes zero tools.
+6. Raw audio is not stored by default.
+7. When continuity is enabled, live calls use dedicated Hermes sessions rather than mutating an active text session.
+8. Desktop/OpenAI is released and measured before xAI or channel work begins.
+9. Telegram voice messages are never represented as live duplex.
