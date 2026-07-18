@@ -2,7 +2,7 @@
 
 ## Objective
 
-Create a development and distribution structure that produces a Hermes Desktop runtime plugin and a Hermes backend plugin without modifying the Hermes source tree.
+Create buildable Hermes Desktop/backend plugins with provider modules that can evolve independently without patching Hermes.
 
 ## Dependencies
 
@@ -11,104 +11,69 @@ None.
 ## Deliverables
 
 ```text
-desktop/
-├── package.json
-├── tsconfig.json
-├── build.mjs
-├── src/
-│   ├── plugin.tsx
-│   └── lib/
-└── test/
-backend/
-├── pyproject.toml
-├── src/hermes_duplex_voice/
-│   ├── __init__.py
-│   ├── api.py
-│   ├── compat.py
-│   ├── config.py
-│   └── models.py
-└── tests/
-plugin/
-└── hermes-duplex-voice/
-    ├── plugin.yaml
-    ├── __init__.py
-    └── dashboard/
-        ├── manifest.json
-        ├── plugin_api.py
-        └── dist/index.js
-scripts/
-├── install.py
-├── uninstall.py
-└── verify_install.py
+desktop/src/
+├── plugin.tsx
+├── core/                    # no provider imports
+└── providers/{openai,xai}/
+backend/src/hermes_duplex_voice/
+├── core/                    # calls, policy, persistence
+├── hermes_compat.py
+└── providers/{base,openai,xai}.py
+tests/fixtures/providers/{openai,xai}/
+scripts/{install,uninstall,verify_install}.py
 ```
 
-The exact packaging may be adjusted if Hermes's current plugin installer requires a different standalone-repository shape, but source and generated artifacts must remain clearly separated.
+- Strict TypeScript desktop source bundled to one ESM `plugin.js`.
+- Python backend plugin with authenticated API router.
+- A desktop and backend provider registry with explicit IDs and adapter versions.
+- `/capabilities` with contract version, Hermes compatibility, and per-provider readiness.
+- Reversible, profile-aware installer using official Hermes workflows where supported.
 
-## Requirements
+## Boundaries
 
-### Desktop build
+- Shared `core` modules may depend on provider interfaces, never provider implementations or raw event types.
+- Provider implementations may depend on core contracts.
+- Build/lint rejects provider-name conditionals outside registry, provider directories, configuration presentation, and tests.
+- Runtime bundle may externalize only Hermes-supported imports.
+- Direct Hermes imports live only in `hermes_compat.py`.
+- Permanent credentials remain in Hermes secret environment.
 
-- Author in TypeScript with strict type checking.
-- Bundle to one plain-JavaScript ESM file named `plugin.js`.
-- Mark only `@hermes/plugin-sdk`, `react`, and `react/jsx-runtime` as runtime externals.
-- Reject every other bare import during build.
-- Do not require a Node runtime after installation.
-- Register a disabled-by-default placeholder composer action and panel proving hot load/unload works.
-
-### Backend package
-
-- Use a Python package importable from the Hermes runtime.
-- Export a Hermes `register(ctx)` entry point and an API router mounted under the plugin namespace.
-- Keep all direct Hermes imports inside `compat.py`.
-- Provide `/capabilities` returning plugin version, readiness, and compatibility diagnostics.
-- Keep behavioral settings in Hermes `config.yaml`; reserve `.env` for credentials.
-
-### Installer and rollback
-
-- Install the desktop artifact under `$HERMES_HOME/desktop-plugins/hermes-duplex-voice/plugin.js`.
-- Install the backend plugin under `$HERMES_HOME/plugins/hermes-duplex-voice/` using the official Hermes plugin workflow where supported.
-- Detect the active profile and refuse to modify another profile unless explicitly selected.
-- Before replacing existing files, create a timestamped backup archive and print the rollback command.
-- Never edit Hermes core files.
-- Uninstall only files owned by this project and restore the previous backup when requested.
-
-## Public contracts
-
-`GET /api/plugins/hermes-duplex-voice/capabilities` initially returns:
+Initial capability response:
 
 ```json
 {
+  "contract_versions": [1],
   "plugin_version": "0.1.0-dev",
-  "compatible": true,
-  "hermes_version": "...",
-  "desktop_plugin_api": true,
-  "backend_plugin_api": true,
-  "openai_credential_available": false,
-  "reasons": []
+  "hermes": {"compatible": true, "version": "..."},
+  "providers": {
+    "openai": {"ready": false, "adapter_version": "1.0.0", "reasons": ["missing_credential"]},
+    "xai": {"ready": false, "adapter_version": "1.0.0", "reasons": ["missing_credential"]}
+  }
 }
 ```
 
-No secret value may appear in this response.
+No secret or arbitrary endpoint appears in this response.
 
 ## Tests
 
-- Desktop typecheck and bundle tests.
-- Static assertion that the bundle contains no unsupported bare imports.
-- Python unit tests for capabilities and redaction.
-- Installer tests against a temporary `HERMES_HOME` covering fresh install, upgrade backup, rollback, profile scoping, and uninstall.
-- Hermes integration smoke test that starts the backend against the temporary home and calls `/capabilities`.
+- Desktop typecheck/bundle and unsupported-import checks.
+- Dependency-boundary test for core/provider imports.
+- Provider registry duplicate/unknown ID tests.
+- Capabilities/redaction tests with zero, one, and both credentials present.
+- Installer fresh/upgrade/rollback/profile/uninstall tests in temporary `HERMES_HOME`.
+- Hermes plugin load and `/capabilities` smoke.
 
 ## Acceptance criteria
 
-1. A clean build produces exactly the expected desktop and backend distributable artifacts.
-2. Installation does not modify the Hermes repository or unrelated profile files.
-3. Hermes Desktop inventories the runtime plugin and the backend serves `/capabilities`.
-4. A second install is idempotent and creates a recoverable backup before replacement.
-5. All tests run without OpenAI credentials or network access.
+1. Clean build produces both plugin artifacts.
+2. Removing either provider implementation and registry entry leaves the other provider build/tests passing.
+3. Installation modifies no Hermes core or unrelated profile files and creates a rollback point.
+4. `/capabilities` distinguishes provider readiness without revealing credentials.
+5. Tests require no network, microphone, or provider key.
 
 ## Non-goals
 
-- WebRTC negotiation
-- OpenAI API calls
+- provider authentication calls
+- audio transports
 - tool execution
 - transcript persistence

@@ -1,8 +1,8 @@
-# Spec 002: Secure Realtime session broker
+# Spec 002: Secure provider bootstrap broker
 
 ## Objective
 
-Add an authenticated backend call-lifecycle service that creates a dedicated Hermes voice session and mints a short-lived OpenAI Realtime client secret without exposing the standard API key.
+Create provider-neutral call lifecycle APIs and backend adapters that mint short-lived OpenAI and xAI browser credentials without exposing permanent keys.
 
 ## Dependencies
 
@@ -10,129 +10,60 @@ Add an authenticated backend call-lifecycle service that creates a dedicated Her
 
 ## Deliverables
 
-- Typed configuration loader and validation.
-- OpenAI Realtime bootstrap client.
-- In-memory call registry with expiry and idempotency.
-- `POST /calls`, `GET /calls/{id}`, and `POST /calls/{id}/close` routes.
-- Mocked OpenAI contract tests.
+- Versioned `BackendProviderAdapter` and tagged `ClientAuthorization` models.
+- OpenAI bootstrap using `OPENAI_API_KEY` and `/v1/realtime/client_secrets`.
+- xAI bootstrap using `XAI_API_KEY` and `/v1/realtime/client_secrets`.
+- Provider/model profiles, capability negotiation, call registry, expiry, and idempotency.
+- `POST /calls`, `GET /calls/{id}`, and `POST /calls/{id}/close`.
 
-## Configuration
-
-Behavioral configuration belongs under a single Hermes config block such as:
+Example configuration:
 
 ```yaml
 plugins:
   hermes_duplex_voice:
     enabled: false
-    model: gpt-realtime-2.1
-    voice: marin
-    turn_detection: semantic_vad
-    max_call_minutes: 30
-    toolsets: []
+    default_profile: openai-default
+    profiles:
+      openai-default:
+        provider: openai
+        model: gpt-realtime-2.1
+        voice: marin
+      xai-default:
+        provider: xai
+        model: grok-voice-think-fast-1.0
+        voice: eve
 ```
 
-The exact nesting must be verified against Hermes's current plugin configuration convention during implementation. `OPENAI_API_KEY` is read from Hermes's secret environment only. Model and voice defaults live in one backend module and are returned to the client; the desktop must not duplicate them.
+Production profiles require versioned models. Floating `latest` aliases require an explicit development override. Exact Hermes config nesting is verified during implementation.
 
-## `POST /calls` request
+`POST /calls` supplies provider/profile, supported contract versions, desktop adapter version, and required capabilities. Backend authentication—not request JSON—selects the Hermes profile.
 
-```json
-{
-  "request_id": "uuid",
-  "profile": "default",
-  "client": {
-    "plugin_version": "0.1.0-dev",
-    "supports_webrtc": true
-  }
-}
-```
+The response contains call/Hermes-session IDs, negotiated contract, provider/model/adapter, capability snapshot/fingerprint, tools, transport descriptor, and an in-memory ephemeral authorization value. It is `Cache-Control: no-store`.
 
-The authenticated backend profile is authoritative. A request may not select an arbitrary profile merely by changing JSON.
-
-## `POST /calls` response
-
-```json
-{
-  "call_id": "uuid",
-  "hermes_session_id": "...",
-  "client_secret": {
-    "value": "ek_...",
-    "expires_at": 0
-  },
-  "realtime": {
-    "model": "gpt-realtime-2.1",
-    "voice": "marin",
-    "session": {}
-  },
-  "tools": [],
-  "expires_at": "ISO-8601"
-}
-```
-
-The response is `Cache-Control: no-store`. Logs show only the call ID and expiry, never the client-secret value.
-
-## Session configuration
-
-The backend builds the authoritative GA Realtime session payload:
-
-- `session.type = realtime`;
-- configured model and output voice;
-- output modality set to audio;
-- semantic VAD by default with automatic response creation and interruption;
-- input transcription enabled only as needed for durable transcript events;
-- concise voice-specific instructions;
-- empty or low-risk tool list until Spec 005; and
-- maximum duration below OpenAI's session limit and the configured local ceiling.
-
-Call `POST https://api.openai.com/v1/realtime/client_secrets` with the standard API key and a stable, privacy-preserving `OpenAI-Safety-Identifier` derived server-side. Do not use the legacy beta header.
-
-## Call registry
-
-Each call record binds:
-
-- call ID;
-- authenticated Hermes profile;
-- dedicated Hermes session ID;
-- creation, expiry, close, and terminal timestamps;
-- effective model/voice/toolset configuration;
-- idempotency keys seen;
-- accepted Realtime tool-call IDs; and
-- lifecycle state: `created`, `active`, `closing`, `closed`, or `expired`.
-
-For the first implementation, process-local state is acceptable. Backend restart invalidates live calls cleanly. Durable call metadata is addressed in Spec 006.
-
-## Error behavior
-
-- `401/403`: missing Hermes authentication or profile mismatch.
-- `409`: conflicting replay of an idempotency key.
-- `422`: unsupported model/voice/configuration.
-- `424`: OpenAI credential absent or bootstrap dependency failed.
-- `429`: local or OpenAI rate limit.
-- `503`: Hermes compatibility probe failed.
-
-Upstream error bodies are normalized and redacted.
+OpenAI configuration may be bound during secret creation where supported. xAI token creation uses bounded `expires_after` and does not require secret-bound session fields; authoritative `session.update` occurs after connect. Provider endpoints are compiled allowlist IDs, never caller URLs.
 
 ## Tests
 
-- Successful client-secret minting with captured request assertions.
-- No-store response headers and log redaction.
-- Missing credential, OpenAI timeout, malformed upstream JSON, and rate limit.
-- Idempotent replay returns the same safe call descriptor without minting a second secret when still valid.
-- Conflicting replay fails.
-- Call expiry and idempotent close.
-- Profile binding and safety-identifier hashing.
-- Model/voice values come from backend configuration only.
+- Successful mocked bootstrap and exact upstream request per provider.
+- Missing key, timeout, malformed response, expiry, rate limit, and redacted upstream errors.
+- Contract/adapter/capability negotiation and fail-closed unsupported requirements.
+- Versioned model enforcement.
+- Endpoint allowlist and SSRF resistance.
+- Idempotent replay returns the same unexpired descriptor; conflicting replay fails.
+- Provider/profile binding and call expiry/close.
+- Assert permanent keys never appear in response, state snapshots, or logs.
 
 ## Acceptance criteria
 
-1. A renderer can obtain a valid short-lived client secret through authenticated plugin REST.
-2. The standard API key is never returned, persisted, or logged.
-3. Every call is bound to a dedicated Hermes session and authenticated profile.
-4. Call creation and close are idempotent and bounded.
-5. Unit tests use no live network or paid API.
+1. Desktop can obtain a usable short-lived authorization for either configured provider.
+2. Permanent keys remain backend-only.
+3. Shared call code does not assume a field named `client_secret` or one transport.
+4. Calls bind provider, model, adapter, capability fingerprint, Hermes profile/session, and expiry.
+5. No default test uses paid APIs.
 
 ## Non-goals
 
-- microphone capture or WebRTC
-- Hermes tool execution
-- final transcript persistence
-- transparent live-call recovery after backend restart
+- media connection
+- tool execution
+- transcript persistence
+- arbitrary third-party endpoint configuration

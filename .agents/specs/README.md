@@ -4,31 +4,37 @@ These specifications are ordered. A later spec may depend on contracts establish
 
 | Order | Specification | Outcome |
 |---:|---|---|
-| 001 | [Repository scaffold and plugin packaging](001-repository-scaffold-and-plugin-packaging.md) | Buildable desktop/backend plugins and repeatable install/rollback |
-| 002 | [Secure Realtime session broker](002-secure-realtime-session-broker.md) | Authenticated client-secret minting and call lifecycle |
-| 003 | [Desktop WebRTC voice runtime](003-desktop-webrtc-voice-runtime.md) | Working direct duplex media connection |
-| 004 | [Realtime event and transcript state machine](004-realtime-events-and-transcripts.md) | Deterministic conversation/UI state and finalized transcripts |
-| 005 | [Hermes function-tool bridge](005-hermes-function-tool-bridge.md) | Scoped, guarded Realtime tool execution |
-| 006 | [Hermes session continuity](006-hermes-session-continuity.md) | Durable, resumable voice-call history |
-| 007 | [Desktop product UX and configuration](007-desktop-product-ux-and-configuration.md) | Native controls, settings, diagnostics, and accessibility |
-| 008 | [Hardening, compatibility, and release](008-hardening-compatibility-and-release.md) | Tested, packaged release candidate |
+| 001 | [Repository scaffold and plugin packaging](001-repository-scaffold-and-plugin-packaging.md) | Buildable provider-structured desktop/backend plugins and rollback |
+| 002 | [Secure provider bootstrap broker](002-secure-realtime-session-broker.md) | OpenAI client secrets, xAI ephemeral tokens, and call lifecycle |
+| 003 | [Provider, transport, and media contracts](003-provider-adapter-contracts.md) | Stable capability-driven seams and reusable contract suite |
+| 004 | [Desktop duplex voice runtime](004-desktop-duplex-voice-runtime.md) | OpenAI WebRTC and xAI WebSocket/AudioWorklet media |
+| 005 | [Provider events and transcripts](005-provider-events-and-transcripts.md) | Normalized lifecycle plus delta/cumulative transcript handling |
+| 006 | [Hermes function-tool bridge](006-hermes-function-tool-bridge.md) | Provider-neutral, scoped Hermes tool execution |
+| 007 | [Hermes session continuity](007-hermes-session-continuity.md) | Durable provider-attributed voice history and replay dedupe |
+| 008 | [Desktop product UX and configuration](008-desktop-product-ux-and-configuration.md) | Capability-driven provider UI, settings, diagnostics, accessibility |
+| 009 | [Hardening, compatibility, and release](009-hardening-compatibility-and-release.md) | Drift-tested OpenAI+xAI release candidate |
 
 ## Definition of done for every spec
 
 - Scope and non-goals remain explicit.
 - New behavior has automated tests.
+- Provider wire types remain inside provider modules.
+- Shared behavior branches on capabilities rather than provider IDs.
 - Security-sensitive logs are redacted.
-- Failure paths are visible and recoverable.
-- Public contracts are documented before dependent work begins.
-- The implementation does not patch the user's Hermes checkout.
+- Failure paths are visible, bounded, and recoverable.
+- Public/versioned contracts are documented before dependent work.
+- No implementation patches the user's Hermes checkout.
 - Verification commands pass from a clean checkout.
 
 ## Cross-cutting constraints
 
-1. Standard OpenAI API keys remain backend-only.
-2. WebRTC carries audio directly between Desktop and OpenAI.
-3. Tool execution is server-authoritative and fail-closed.
-4. Raw audio is not stored by default.
-5. Voice calls use dedicated Hermes sessions rather than mutating an active text session.
-6. Runtime desktop output is a single ESM file compatible with Hermes's import restrictions.
-7. External network calls and live paid tests are opt-in.
+1. `OPENAI_API_KEY`, `XAI_API_KEY`, and future permanent provider credentials stay backend-only.
+2. Provider media flows directly between Desktop and the selected voice API.
+3. OpenAI uses WebRTC; initial xAI uses WebSocket with explicit AudioWorklet media handling.
+4. Tool execution is server-authoritative and fail-closed.
+5. Raw audio is not stored by default.
+6. Voice calls use dedicated Hermes sessions rather than mutating an active text session.
+7. Runtime desktop output is one ESM file compatible with Hermes import restrictions.
+8. Production profiles pin versioned models; floating aliases never auto-upgrade stable installs.
+9. Provider capability removal fails bootstrap instead of silently changing safety/behavior.
+10. External network calls and live paid tests are opt-in.
