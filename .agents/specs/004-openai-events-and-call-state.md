@@ -26,7 +26,7 @@ Only normalize behavior the Desktop product uses:
 - assistant response/audio started;
 - user and assistant transcript delta/final;
 - response interrupted/completed;
-- function call ready (consumed in Spec 005);
+- function call ready (consumed in Spec 006);
 - provider error/rate-limit status;
 - terminal close.
 

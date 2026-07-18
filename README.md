@@ -41,8 +41,8 @@ Desktop/OpenAI v0.1 ships at step 5. Steps 6–7 form the v0.2 Hermes-integratio
 
 ### Track C — endpoint expansion
 
-9. Add Discord live voice. This is when server-hosted provider sessions, participant identity, floor control, audio conversion, linked-text approvals, and worker ownership become justified.
-10. Add Telegram Bot API voice notes as an explicitly asynchronous mode.
+9. Add Discord live voice. This is when reusable long-lived server-hosted realtime provider sessions, participant identity, floor control, audio conversion, linked-text approvals, and worker ownership become justified.
+10. Add Telegram Bot API voice notes as an explicitly asynchronous mode with a bounded short-lived server provider session; reuse the Discord runtime when available, but do not require Discord abstractions.
 11. Consider Telegram MTProto/tgcalls live calls as a separate opt-in project, not as a requirement for Telegram voice notes or the initial release.
 
 ## Core decisions

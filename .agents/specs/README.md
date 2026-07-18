@@ -55,6 +55,6 @@ Specs 006–007 enhance the shipped Desktop/OpenAI path. A missing Hermes host s
 4. Runtime Desktop output is one ESM file using only Hermes-supported imports.
 5. Tool schema generation and execution use identical server-resolved scope; failure exposes zero tools.
 6. Raw audio is not stored by default.
-7. Live calls use dedicated Hermes sessions rather than mutating an active text session.
+7. When continuity is enabled, live calls use dedicated Hermes sessions rather than mutating an active text session.
 8. Desktop/OpenAI is released and measured before xAI or channel work begins.
 9. Telegram voice messages are never represented as live duplex.

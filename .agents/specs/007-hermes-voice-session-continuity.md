@@ -2,18 +2,19 @@
 
 ## Objective
 
-Persist finalized OpenAI voice turns and tool activity in a dedicated Hermes session without mutating a concurrently active text-agent session.
+Persist finalized OpenAI voice turns, plus tool activity when the tool bridge is enabled, in a dedicated Hermes session without mutating a concurrently active text-agent session.
 
 ## Dependencies
 
-- Specs 004–006.
+- Specs 004–005.
+- Spec 006 only when canonical tool-call/result persistence is enabled.
 
 ## Deliverables
 
 - Voice-session repository behind `hermes_compat.py`.
 - One dedicated Hermes voice session per call.
 - Bounded `POST /calls/{call_id}/finalize` ingestion or equivalent trusted backend finalization path.
-- Final transcript and canonical tool-call/result mapping.
+- Final transcript mapping and, when Spec 006 is available, canonical tool-call/result mapping.
 - Deduplication and idempotent call close.
 - Verification that history lists, exports, and resumes through normal Hermes surfaces.
 
@@ -22,7 +23,7 @@ Persist finalized OpenAI voice turns and tool activity in a dedicated Hermes ses
 Persist:
 
 - finalized user/assistant text;
-- canonical tool call/result adjacency;
+- canonical tool call/result adjacency when Spec 006 is enabled;
 - provider/model/voice and safe provider item/call IDs;
 - call start/end, duration, interruption state, and terminal reason;
 - linkage to the originating Desktop profile/session when safe.
@@ -35,9 +36,9 @@ The current Hermes plugin API has no public external session-writer surface. Tra
 
 ## Tests
 
-- Final user/assistant records create valid Hermes history with strict role/tool ordering.
+- Final user/assistant records create valid Hermes history; when Spec 006 is enabled, tool records preserve strict canonical role/tool ordering.
 - Interrupted assistant output is marked honestly.
-- Duplicate, retried, and out-of-order final batches do not duplicate messages or tools.
+- Duplicate, retried, and out-of-order final batches do not duplicate messages or any enabled tool records.
 - Active text session is unchanged.
 - Crash/close retry is idempotent and abandoned calls are finalized safely.
 - Normal Hermes list/export/text resume works from a disposable profile.
@@ -46,7 +47,7 @@ The current Hermes plugin API has no public external session-writer surface. Tra
 ## Acceptance criteria
 
 1. A closed voice call appears as valid dedicated Hermes history.
-2. Retrying finalization cannot duplicate turns or tools.
+2. Retrying finalization cannot duplicate turns or any enabled tool records.
 3. The active text-agent session is never mutated concurrently.
 4. Interrupted output is not represented as fully delivered.
 5. Stored data contains no audio or credential material.

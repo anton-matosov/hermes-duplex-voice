@@ -6,7 +6,8 @@ Add xAI/Grok Voice to the already released Desktop product and extract the minim
 
 ## Dependencies
 
-- Track A release (Specs 001–007).
+- Desktop/OpenAI v0.1 release (Specs 001–005).
+- Specs 006–007 are optional integrations; xAI must preserve them when present but is not blocked when either is unavailable.
 
 ## Extraction rule
 
@@ -36,7 +37,7 @@ Transport and media remain inside provider implementations. OpenAI keeps WebRTC 
 ## Tests
 
 - Deleting xAI registration leaves OpenAI build/tests unchanged.
-- Common call, event, tool, history, and cleanup behavior runs against both clients.
+- Common call, event, and cleanup behavior runs against both clients; tool and history behavior joins the shared suite only when the corresponding optional integration is enabled.
 - xAI token expiry/auth redaction, subprotocol construction, model pinning, JSON/binary framing, queue bounds, `bufferedAmount`, local flush/truncation, and close codes.
 - Bundle inspection proves there are no dynamic chunks, relative runtime imports, or separately emitted worklet assets.
 - Cumulative transcript corrections replace provisional text rather than append.

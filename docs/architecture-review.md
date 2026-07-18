@@ -66,11 +66,12 @@ A call registry with generic endpoint/provider negotiation, `/capabilities`, eve
 **Decision:** start with:
 
 - `GET /config` — non-secret OpenAI model/voice defaults and API version;
-- `POST /session` — accept bounded JSON `{sdp}` through the current JSON-only `ctx.rest()` bridge and use OpenAI's unified WebRTC interface, or mint an ephemeral token if direct negotiation is selected after the seam spike;
+- `POST /session` — accept bounded JSON `{sdp}` through the current JSON-only `ctx.rest()` bridge, use OpenAI's unified WebRTC interface, capture the provider call ID, and return `{callId, sdp}`; or establish an equivalent tracked lifecycle if ephemeral bootstrap is selected after the seam spike;
+- `POST /calls/{callId}/close` — idempotently terminate the upstream call and expire the profile-bound call record;
 - later, `POST /tools/{callId}/{toolCallId}`;
 - later, `POST /calls/{callId}/finalize` for bounded finalized records.
 
-Prefer the OpenAI unified WebRTC interface initially: the backend remains in session initialization only, keeps the standard key server-side, and avoids returning even an ephemeral bearer token to plugin code. If remote-backend latency or deployment behavior makes that materially worse, retain ephemeral bootstrap as the measured fallback.
+Prefer the OpenAI unified WebRTC interface initially: the backend remains a small initialization/lifecycle control plane rather than a media proxy, keeps the standard key server-side, and avoids returning even an ephemeral bearer token to plugin code. Capture the OpenAI `Location` call ID so cancellation can invoke upstream hang-up instead of leaving an orphaned session. If remote-backend latency or deployment behavior makes that materially worse, retain ephemeral bootstrap as the measured fallback with equivalent lifecycle ownership.
 
 ### 7. Future release gates applied to the first release
 
@@ -155,7 +156,7 @@ When xAI is built, extract a provider interface from the working OpenAI client. 
 
 ### Discord
 
-When Discord is built, introduce the endpoint/runtime seam, server-hosted provider sessions, audio format conversion, participant identity, floor control, and linked-text approvals. Those abstractions are justified by a second endpoint with different trust and media placement.
+When Discord is built, introduce the reusable live endpoint/runtime seam, long-lived server-hosted realtime provider sessions, audio format conversion, participant identity, floor control, and linked-text approvals. Telegram's independent asynchronous voice-message part may use a bounded provider-specific server session without importing Discord participant/floor abstractions.
 
 ### Telegram
 
@@ -187,13 +188,13 @@ Opt-in live smoke, budget capped:
 
 ### Desktop/OpenAI v0.1
 
-Required: real duplex call, mute/hang-up, basic status, barge-in, deterministic cleanup, secure backend negotiation, mocked CI, opt-in live smoke.
+Required: real duplex call, mute/hang-up, basic status and final transcript UI, barge-in, deterministic cleanup, secure backend negotiation, accessibility, installation/rollback hardening, mocked CI, and opt-in live smoke.
 
 Not required: xAI, tools, persistence, provider selector, device selector, recovery/resumption, Discord, Telegram, sidecars, distributed leases, generic capability negotiation.
 
 ### Desktop/OpenAI v0.2
 
-Add finalized transcript UI, one harmless read-only Hermes tool, dedicated voice-session continuity, accessibility, and installation/rollback hardening.
+Add one harmless read-only Hermes tool and dedicated voice-session continuity. Final transcript UI, accessibility, and installation/rollback hardening are part of the v0.1 release gate.
 
 ### Expansions
 

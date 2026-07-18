@@ -85,16 +85,20 @@ Unified flow:
 
 1. User clicks the Duplex Voice action.
 2. Desktop acquires one microphone track and creates a peer connection, remote autoplay audio element, and `oai-events` data channel.
-3. Desktop creates an SDP offer and sends `{ sdp: offer.sdp }` through authenticated `ctx.rest('/session', { method: 'POST', body: ... })`.
+3. Desktop creates an SDP offer, calls `await pc.setLocalDescription(offer)`, and sends `{ sdp: pc.localDescription.sdp }` through authenticated `ctx.rest('/session', { method: 'POST', body: ... })`.
 4. The JSON wrapper is required because the current Desktop `ctx.rest()` bridge serializes request bodies as JSON and parses successful responses as JSON; it cannot carry raw `application/sdp` end to end.
 5. Backend validates the bounded SDP string, builds the authoritative pinned OpenAI session configuration, and forwards a multipart request to `POST /v1/realtime/calls` with `OPENAI_API_KEY`.
-6. Backend returns `{ sdp: answer }` with `Cache-Control: no-store` and redacted errors.
-7. Desktop sets the remote description and waits for peer/data-channel readiness.
-8. Media and provider events then flow directly between Desktop and OpenAI.
+6. Backend captures OpenAI's provider call ID from the response `Location` header, creates an opaque application `callId`, and stores a minimal expiring record bound to the active profile and provider call.
+7. Backend returns `{ callId, sdp: answer }` with `Cache-Control: no-store` and redacted errors.
+8. Desktop sets the remote description and waits for peer/data-channel readiness.
+9. Media and provider events then flow directly between Desktop and OpenAI.
+10. Hang-up, unload, failed negotiation, disconnect, or record expiry closes the local peer and asks the backend to terminate the upstream call idempotently.
 
-If the unified path is unsuitable, the alternate flow mints a short-lived secret through `/v1/realtime/client_secrets`; all other trust and cleanup rules remain unchanged.
+If the unified path is unsuitable, the alternate flow mints a short-lived secret through `/v1/realtime/client_secrets`; it must still establish the same opaque application call lifecycle and give the backend enough provider identity to perform authenticated upstream hang-up. Do not maintain both production paths without measured evidence.
 
-The backend owns model, voice, instructions, VAD mode, allowed endpoint, safety identifier, request limits, and timeout. The renderer cannot supply an arbitrary upstream URL or permanent credential.
+The backend chooses the initial model, voice, instructions, VAD mode, allowed endpoint, safety identifier, request limits, and timeout. Runtime Desktop plugins are trusted renderer code, so v0.1 enforces this boundary by exposing no user-controlled override and by never sending `session.update` for those protected fields. If strict authority against a modified renderer or dynamic server-side control is required, attach OpenAI's server sideband connection and keep protected updates and business logic there. The renderer never supplies an arbitrary upstream URL or permanent credential.
+
+The call record is deliberately smaller than a generic call registry: application call ID, provider call ID, profile binding, creation/expiry state, and terminal reason. It exists so cancellation cannot orphan an upstream session and so later tool/finalize routes can verify active call ownership.
 
 ## Desktop components
 
@@ -149,6 +153,8 @@ The OpenAI client owns:
 
 It emits small domain events such as `session.ready`, `speech.started`, `speech.stopped`, `assistant.started`, `assistant.interrupted`, `transcript.delta`, `transcript.final`, `response.done`, and `error`.
 
+The v0.1 client event allowlist excludes protected `session.update` fields. A future sideband-controlled implementation may update them from the backend instead.
+
 This is not yet a public provider adapter contract. It is an isolated implementation from which a contract can be extracted when xAI exists.
 
 ## Barge-in
@@ -160,7 +166,7 @@ With OpenAI VAD and WebRTC, provider output buffering and automatic truncation h
 - never persists a provisional transcript as delivered speech; and
 - supports explicit cancellation/hang-up.
 
-Barge-in is tested with real audio in the opt-in smoke test and with deterministic mocked provider events in CI.
+Barge-in must be tested with real audio in the opt-in smoke test and with deterministic mocked provider events in CI before release.
 
 ## Backend API by milestone
 
@@ -169,7 +175,8 @@ Barge-in is tested with real audio in the opt-in smoke test and with determinist
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/config` | Safe API version, pinned model/voice, readiness, and limits |
-| `POST` | `/session` | Negotiate OpenAI WebRTC session; return SDP answer or short-lived authorization |
+| `POST` | `/session` | Negotiate OpenAI WebRTC session; return opaque call ID plus SDP answer or short-lived authorization |
+| `POST` | `/calls/{call_id}/close` | Idempotently terminate the provider call and expire backend call state |
 
 ### v0.2 additions
 
@@ -188,7 +195,7 @@ The current `plugin_api.py` module is independently imported and receives no `Pl
 2. Generate its schema through the Hermes compatibility adapter.
 3. Supply the schema to OpenAI.
 4. Receive final function arguments on the data channel.
-5. POST the call to the backend with call and provider call IDs.
+5. POST the tool request to the backend with the opaque application call ID and provider tool-call ID; the provider session/call ID remains backend-only.
 6. Recheck active call, exact tool scope, arguments, timeout, output limit, and idempotency.
 7. Dispatch through Hermes's canonical tool path.
 8. Return a `function_call_output`, then request the next response.

@@ -18,10 +18,11 @@ Deliver:
 
 - reuse of Hermes Telegram bot identity, allowlist, sender/chat/topic mapping, download limits, and `sendVoice` through a supported seam;
 - OGG/Opus decode → bounded complete audio input to a short-lived provider session → completed output → OGG/Opus `sendVoice`;
+- one bounded server-side, provider-specific voice-message runtime for the selected provider, with explicit open/timeout/close ownership; reuse Spec 009's server provider runtime if it already exists, but do not require Discord abstractions merely to ship Part A;
 - strong sender attribution and update/message ID deduplication;
 - explicit `voice_message` labeling with no barge-in or continuous-stream claims.
 
-Tests cover file/duration limits, decode/encode, topic mapping, update retry, provider failure, temporary-file cleanup, and proof that the endpoint cannot satisfy `live_duplex`.
+Tests cover file/duration limits, decode/encode, topic mapping, update retry, provider authentication/failure/timeout, server-session cleanup, temporary-file cleanup, and proof that the endpoint cannot satisfy `live_duplex`.
 
 Part A has its own release gate and does not wait for Part B.
 

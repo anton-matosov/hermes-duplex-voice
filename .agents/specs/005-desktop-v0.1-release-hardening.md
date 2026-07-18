@@ -23,7 +23,7 @@ Specs 006–007 are v0.2 integrations and do not block this release.
 ## Required UX
 
 - Start, mute/unmute, hang up.
-- Clear connection/listening/user-speaking/responding/assistant-speaking/tool/error states.
+- Clear connection/listening/user-speaking/responding/assistant-speaking/error states.
 - Final transcript display; provisional transcript is visually distinct.
 - Actionable microphone, backend, OpenAI auth/model, ICE, autoplay, and compatibility errors.
 - No provider selector or speculative capability matrix; this release is OpenAI-only.
@@ -37,7 +37,7 @@ Device selection may be added only if the tracer-bullet evidence shows the defau
 - Format/lint/typecheck/unit/build.
 - Bundle/import and secret scan.
 - Real plugin load through a temporary `HERMES_HOME`.
-- Backend auth/config/session/tool/finalize contract tests.
+- Backend auth/config/session/close contract tests, including provider-call capture and upstream hang-up.
 - State/event/cleanup tests, including hot unload and profile/connection switch.
 - Install/upgrade/rollback/uninstall/profile isolation.
 - Dependency and documentation checks.

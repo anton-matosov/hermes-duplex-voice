@@ -38,8 +38,9 @@ Every asynchronous completion checks the current generation/call ID so late perm
 4. close the data channel and peer connection;
 5. detach and clear the remote audio source;
 6. remove listeners/timers;
-7. clear sensitive in-memory session data;
-8. return UI to a truthful terminal/idle state.
+7. idempotently notify the backend to close any issued application call ID and terminate the upstream provider call;
+8. clear sensitive in-memory session data;
+9. return UI to a truthful terminal/idle state.
 
 Cleanup correctness is a release gate; waveform polish is not.
 
@@ -49,6 +50,8 @@ Cleanup correctness is a release gate; waveform polish is not.
 - Happy-path ordering from click to connected.
 - Permission denial, no device, backend failure, malformed SDP answer, ICE failure/disconnect, data-channel failure, autoplay rejection, and hang-up in every intermediate state.
 - Late async event suppression after close or a newer call.
+- `setLocalDescription(offer)` completes before the applied local SDP is sent, and the returned answer is accepted only for the current call generation.
+- Hang-up, negotiation failure, unload, and profile switch each invoke backend close at most once for an issued call ID.
 - Mute/unmute track behavior.
 - Hot unload/profile switch/window close cleanup with no tracks, peers, channels, audio sources, timers, or listeners left.
 - Assert no backend raw-audio request and no SDP/token/audio logging.
