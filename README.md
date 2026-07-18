@@ -81,6 +81,14 @@ See [`docs/architecture.md`](docs/architecture.md) for the complete contracts, m
 
 The ordered implementation specs live in [`.agents/specs/`](.agents/specs/).
 
+## Project automation
+
+Repository-level automated reviews are specified separately from the Duplex Voice product sequence:
+
+- [Automated code reviews with ChocoBot](docs/automated-code-reviews.md)
+- [Automated review specification](.agents/specs/013-automated-chocobot-code-reviews.md)
+- [ChocoBot GitHub App specification](.agents/specs/014-create-chocobot-github-app.md)
+
 ## Core decisions
 
 - **Provider and endpoint contracts are independent:** shared orchestration connects any compatible human endpoint to any compatible duplex provider.

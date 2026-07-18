@@ -1,6 +1,6 @@
 # Implementation specifications
 
-These specifications are ordered. A later spec may depend on contracts established by every earlier spec.
+Product specifications 001–012 are ordered; a later product spec may depend on contracts established by every earlier product spec. Project-automation specifications 013–014 are operationally independent of that product delivery sequence.
 
 | Order | Specification | Outcome |
 |---:|---|---|
@@ -16,6 +16,15 @@ These specifications are ordered. A later spec may depend on contracts establish
 | 010 | [Discord duplex voice endpoint plugin](010-discord-duplex-voice-endpoint-plugin.md) | Voice Gateway v8/DAVE full-duplex channel adapter with identity and barge-in |
 | 011 | [Telegram voice endpoint plugins](011-telegram-voice-endpoint-plugins.md) | Bot API voice notes plus optional MTProto/tgcalls live sidecar |
 | 012 | [Hardening, compatibility, and release](012-hardening-compatibility-and-release.md) | Drift-tested provider and endpoint release candidate |
+
+## Project automation
+
+These specs are coordinated through the [automated code-review user guide](../../docs/automated-code-reviews.md). They configure repository and Hermes infrastructure and do not gate Duplex Voice product delivery.
+
+| Order | Specification | Outcome |
+|---:|---|---|
+| 013 | [Automated ChocoBot code reviews](013-automated-chocobot-code-reviews.md) | Signed, isolated, exact-head reviews run only for the requested PR triggers and publish once per head |
+| 014 | [Create the ChocoBot GitHub App](014-create-chocobot-github-app.md) | A private least-privilege app identity is installed only on this repository and issues short-lived review credentials |
 
 ## Definition of done for every spec
 
